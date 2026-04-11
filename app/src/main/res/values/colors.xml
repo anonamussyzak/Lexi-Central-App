@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Kirby Aesthetic Colors -->
+    <color name="kirby_pink">#FFB7C5</color>
+    <color name="kirby_pink_dark">#FF6B8B</color>
+    <color name="kirby_blue">#B8F2E6</color>
+    <color name="kirby_blue_dark">#2A7F7E</color>
+    <color name="kirby_yellow">#FFF5B7</color>
+    <color name="kirby_background">#FFF5F7</color>
+
+    <color name="primary">@color/kirby_pink</color>
+    <color name="primary_variant">@color/kirby_pink_dark</color>
+    <color name="secondary">@color/kirby_blue</color>
+    <color name="secondary_variant">@color/kirby_blue_dark</color>
+</resources>
