@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, StyleSheet, Pressable } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Play, FileImage, Link } from 'lucide-react-native';
+import { Play, FileImage, Link, Mic, FileText, Film } from 'lucide-react-native';
 import { MediaEntry } from '@/lib/types';
 import { formatDuration, isMegaUrl } from '@/lib/utils';
 import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 
 interface MediaCardProps {
   entry: MediaEntry;
@@ -18,10 +19,31 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
   const theme = THEMES[settings.theme];
   const scale = useSharedValue(1);
   const radius = settings.roundedCorners;
+  const [thumb, setThumb] = useState<string | null>(entry.thumbnail_url || null);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+
+  useEffect(() => {
+    let isMounted = true;
+    const getThumb = async () => {
+      if (entry.type === 'video' && !entry.thumbnail_url && entry.local_path) {
+        try {
+          const { uri } = await VideoThumbnails.getThumbnailAsync(entry.local_path, {
+            time: 1000,
+            quality: 0.5,
+          });
+          if (isMounted) setThumb(uri);
+        } catch (e) {
+          console.warn("Thumbnail generation failed for:", entry.local_path);
+        }
+      }
+    };
+
+    getThumb();
+    return () => { isMounted = false; };
+  }, [entry.local_path, entry.thumbnail_url, entry.type]);
 
   const hasMega = isMegaUrl(entry.source_link);
 
@@ -46,15 +68,23 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
         ]}
       >
         <View style={[styles.thumbnailContainer, { borderRadius: radius }]}>
-          {entry.thumbnail_url ? (
+          {thumb ? (
             <Image
-              source={{ uri: entry.thumbnail_url }}
+              source={{ uri: thumb }}
               style={styles.thumbnail}
               resizeMode="cover"
             />
           ) : (
             <View style={[styles.placeholder, { backgroundColor: theme.surfaceElevated }]}>
-              <FileImage size={32} color={theme.textMuted} />
+              {entry.type === 'voice' ? (
+                <Mic size={40} color={theme.primary} />
+              ) : entry.type === 'note' ? (
+                <FileText size={40} color={theme.primary} />
+              ) : entry.type === 'video' ? (
+                <Film size={40} color={theme.primary} />
+              ) : (
+                <FileImage size={32} color={theme.textMuted} />
+              )}
             </View>
           )}
 
@@ -66,7 +96,7 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
             </View>
           )}
 
-          {entry.type === 'video' && entry.duration_seconds > 0 && (
+          {(entry.type === 'video' || entry.type === 'voice') && entry.duration_seconds > 0 && (
             <View style={[styles.durationBadge, { backgroundColor: 'rgba(0,0,0,0.65)' }]}>
               <Text style={styles.durationText}>{formatDuration(entry.duration_seconds)}</Text>
             </View>
@@ -80,10 +110,10 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
         </View>
 
         <View style={styles.info}>
-          <Text style={[styles.title, { color: theme.text }]} numberOfLines={2}>
+          <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
             {entry.title}
           </Text>
-          {entry.notes.length > 0 && (
+          {entry.notes && entry.notes.length > 0 && (
             <Text style={[styles.notesPreview, { color: theme.textMuted }]} numberOfLines={1}>
               {entry.notes.replace(/[#*_`]/g, '').trim()}
             </Text>
@@ -103,7 +133,7 @@ const styles = StyleSheet.create({
   },
   thumbnailContainer: {
     width: '100%',
-    aspectRatio: 9 / 13,
+    aspectRatio: 1,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -119,7 +149,7 @@ const styles = StyleSheet.create({
   },
   playOverlay: {
     position: 'absolute',
-    inset: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     opacity: 0.6,

@@ -1,68 +1,100 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
-import { MediaEntry } from '@/lib/types';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
+import { MediaEntry, MediaType } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
+import { Alert } from 'react-native';
+import { useSettings } from './SettingsContext';
+
+const { StorageAccessFramework } = FileSystem;
 
 interface MediaContextValue {
   entries: MediaEntry[];
+  localFiles: MediaEntry[];
   isLoading: boolean;
+  isVaultUnlocked: boolean;
+  setVaultUnlocked: (unlocked: boolean) => void;
   addEntry: (entry: Omit<MediaEntry, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
   updateEntry: (id: string, updates: Partial<MediaEntry>) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
   toggleVault: (id: string) => Promise<void>;
   refreshEntries: () => Promise<void>;
+  scanLocalPaths: (pathUris: string[]) => Promise<void>;
 }
 
 const MediaContext = createContext<MediaContextValue>({
   entries: [],
+  localFiles: [],
   isLoading: false,
+  isVaultUnlocked: false,
+  setVaultUnlocked: () => {},
   addEntry: async () => {},
   updateEntry: async () => {},
   deleteEntry: async () => {},
   toggleVault: async () => {},
   refreshEntries: async () => {},
+  scanLocalPaths: async () => {},
 });
 
 const STORAGE_KEY = '@lexi_central_notes';
+const LOCAL_FILES_KEY = '@lexi_central_local_files';
+const VAULT_DIR = `${FileSystem.documentDirectory}VaultedMedia/`;
+
+const sanitizeId = (uri: string, name: string) => {
+    const combined = `${uri}_${name}`;
+    return combined.replace(/[^a-zA-Z0-9]/g, '_').substring(combined.length - 80);
+};
 
 export function MediaProvider({ children }: { children: ReactNode }) {
+  const { settings, isLoaded: settingsLoaded } = useSettings();
   const [entries, setEntries] = useState<MediaEntry[]>([]);
+  const [localFiles, setLocalFiles] = useState<MediaEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
+  const isScanning = useRef(false);
 
-  // Load from local cache first
   useEffect(() => {
-    const loadCachedData = async () => {
+    const init = async () => {
       try {
-        const cached = await AsyncStorage.getItem(STORAGE_KEY);
-        if (cached) {
-          setEntries(JSON.parse(cached));
+        const dirInfo = await FileSystem.getInfoAsync(VAULT_DIR);
+        if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(VAULT_DIR, { intermediates: true });
         }
+
+        const cached = await AsyncStorage.getItem(STORAGE_KEY);
+        const cachedLocal = await AsyncStorage.getItem(LOCAL_FILES_KEY);
+        if (cached) setEntries(JSON.parse(cached));
+        if (cachedLocal) setLocalFiles(JSON.parse(cachedLocal));
       } catch (e) {
         console.error('Failed to load cache', e);
       } finally {
         setIsLoading(false);
       }
     };
-    loadCachedData();
+    init();
   }, []);
 
-  // Set up Supabase Realtime
   useEffect(() => {
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'media_entries' },
-        (payload) => {
-          refreshEntries();
-        }
-      )
-      .subscribe();
+      if (settingsLoaded && settings.mediaPaths && settings.mediaPaths.length > 0) {
+          scanLocalPaths(settings.mediaPaths);
+      }
+  }, [settings.mediaPaths, settingsLoaded]);
 
-    refreshEntries();
-
+  useEffect(() => {
+    let channel: any;
+    const setupRealtime = () => {
+        channel = supabase
+          .channel('schema-db-changes')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'media_entries' },
+            () => refreshEntries()
+          )
+          .subscribe();
+    };
+    setupRealtime();
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, []);
 
@@ -73,49 +105,277 @@ export function MediaProvider({ children }: { children: ReactNode }) {
         .select('*')
         .order('created_at', { ascending: false });
 
+      if (error) throw error;
       if (data) {
         setEntries(data);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       }
     } catch (e) {
       console.error('Failed to fetch from Supabase', e);
     }
   }, []);
 
-  const addEntry = useCallback(async (entry: Omit<MediaEntry, 'id' | 'created_at' | 'updated_at'>) => {
-    const { data, error } = await supabase
-      .from('media_entries')
-      .insert([entry])
-      .select();
+  const scanLocalPaths = useCallback(async (pathUris: string[]) => {
+    if (!pathUris || pathUris.length === 0 || isScanning.current) return;
 
-    if (!error && data) {
-      // Local state will be updated via Realtime listener
+    isScanning.current = true;
+    try {
+      let allScannedFiles: MediaEntry[] = [];
+
+      for (const pathUri of pathUris) {
+          if (!pathUri) continue;
+          const isSAF = pathUri.startsWith('content://');
+          let files: string[] = [];
+          try {
+              if (isSAF) {
+                  files = await StorageAccessFramework.readDirectoryAsync(pathUri);
+              } else {
+                  files = await FileSystem.readDirectoryAsync(pathUri);
+                  files = files.map(f => pathUri + (pathUri.endsWith('/') ? '' : '/') + f);
+              }
+
+              const filesToProcess = files.slice(0, 150);
+
+              const scannedPromises = filesToProcess.map(async (fileUri) => {
+                const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
+                const lowerName = name.toLowerCase();
+                const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
+                const isAudio = lowerName.match(/\.(mp3|m4a|wav|aac|ogg|flac|amr|mid|m4p)$/);
+                const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
+
+                if (!isVideo && !isAudio && !isImage) return null;
+
+                let type: MediaType = 'image';
+                if (isVideo) type = 'video';
+                else if (isAudio) type = 'voice';
+                else if (isImage) type = 'image';
+
+                const id = `local_${sanitizeId(fileUri, name)}`;
+
+                return {
+                  id,
+                  title: name,
+                  type,
+                  notes: '',
+                  source_link: '',
+                  thumbnail_url: type === 'image' ? fileUri : '',
+                  local_path: fileUri,
+                  is_vaulted: false,
+                  tags: ['general'],
+                  media_date: new Date().toISOString(),
+                  duration_seconds: 0,
+                  file_size_bytes: 0,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                };
+              });
+
+              const scannedResults = await Promise.all(scannedPromises);
+              allScannedFiles = [...allScannedFiles, ...scannedResults.filter((f): f is MediaEntry => f !== null)];
+          } catch (e) {
+              console.error(`Scan error:`, e);
+          }
+      }
+
+      // Private Vault Scans
+      try {
+          const vaultedFiles = await FileSystem.readDirectoryAsync(VAULT_DIR);
+          const vaultedPromises = vaultedFiles.map(async filename => {
+              const fileUri = VAULT_DIR + filename;
+              const isVideo = filename.toLowerCase().match(/\.(mp4|mkv|mov|avi|3gp|webm)$/i);
+              const isImage = filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
+              const type = isVideo ? 'video' : 'image';
+              if (!isVideo && !isImage) return null;
+
+              return {
+                  id: `vaulted_${sanitizeId(fileUri, filename)}`,
+                  title: filename,
+                  type,
+                  notes: '',
+                  source_link: '',
+                  thumbnail_url: type === 'image' ? fileUri : '',
+                  local_path: fileUri,
+                  is_vaulted: true,
+                  tags: ['vaulted'],
+                  media_date: new Date().toISOString(),
+                  duration_seconds: 0,
+                  file_size_bytes: 0,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+              };
+          });
+          const vaultedEntries = await Promise.all(vaultedPromises);
+          allScannedFiles = [...allScannedFiles, ...vaultedEntries.filter((f): f is MediaEntry => f !== null)];
+      } catch (e) {}
+
+      const uniqueFiles = allScannedFiles.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
+      setLocalFiles(uniqueFiles);
+      AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(uniqueFiles));
+    } catch (e) {
+      console.error('Scan error', e);
+    } finally {
+      isScanning.current = false;
     }
   }, []);
+
+  const addEntry = useCallback(async (entry: Omit<MediaEntry, 'id' | 'created_at' | 'updated_at'>) => {
+    const tempId = `cloud_${Date.now()}`;
+    const now = new Date().toISOString();
+    const optimisticEntry: MediaEntry = { ...entry, id: tempId, created_at: now, updated_at: now };
+
+    setEntries(prev => {
+        const newList = [optimisticEntry, ...prev];
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+        return newList;
+    });
+
+    try {
+        const { data, error } = await supabase.from('media_entries').insert([{ ...entry, id: undefined }]).select();
+        if (error) throw error;
+        await refreshEntries();
+    } catch (e) {
+        console.error('Cloud save failed', e);
+    }
+  }, [refreshEntries]);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<MediaEntry>) => {
-    const { error } = await supabase
-      .from('media_entries')
-      .update(updates)
-      .eq('id', id);
-  }, []);
+    if (id.startsWith('local_') || id.startsWith('vaulted_')) {
+        setLocalFiles(prev => {
+            const newList = prev.map(e => e.id === id ? { ...e, ...updates } : e);
+            AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
+            return newList;
+        });
+    } else {
+        setEntries(prev => {
+            const newList = prev.map(e => e.id === id ? { ...e, ...updates } : e);
+            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+            return newList;
+        });
+        try {
+            const { error } = await supabase.from('media_entries').update(updates).eq('id', id);
+            if (!error) await refreshEntries();
+        } catch (e) {}
+    }
+  }, [refreshEntries]);
 
   const deleteEntry = useCallback(async (id: string) => {
-    const { error } = await supabase
-      .from('media_entries')
-      .delete()
-      .eq('id', id);
-  }, []);
+    if (id.startsWith('local_') || id.startsWith('vaulted_')) {
+        const entry = localFiles.find(e => e.id === id);
+        if (entry) {
+            try {
+                if (entry.local_path.startsWith('content://')) {
+                    await StorageAccessFramework.deleteAsync(entry.local_path);
+                } else if (entry.local_path.startsWith(FileSystem.documentDirectory || '')) {
+                    await FileSystem.deleteAsync(entry.local_path);
+                }
+            } catch(e) {}
+        }
+        setLocalFiles(prev => {
+            const newList = prev.filter(e => e.id !== id);
+            AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
+            return newList;
+        });
+    } else {
+        setEntries(prev => {
+            const newList = prev.filter(e => e.id !== id);
+            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+            return newList;
+        });
+        try {
+            await supabase.from('media_entries').delete().eq('id', id);
+            await refreshEntries();
+        } catch (e) {}
+    }
+  }, [localFiles, refreshEntries]);
 
   const toggleVault = useCallback(async (id: string) => {
-    const entry = entries.find(e => e.id === id);
-    if (entry) {
-      await updateEntry(id, { is_vaulted: !entry.is_vaulted });
+    const all = [...entries, ...localFiles];
+    const entry = all.find(e => e.id === id);
+    if (!entry) return;
+
+    const willBeVaulted = !entry.is_vaulted;
+
+    if (entry.local_path) {
+        try {
+            if (willBeVaulted) {
+                const filename = entry.local_path.split('/').pop() || `hidden_${Date.now()}`;
+                const newPath = VAULT_DIR + filename;
+
+                // ATOMIC MOVE: Copy then Delete
+                await FileSystem.copyAsync({ from: entry.local_path, to: newPath });
+                try {
+                    if (entry.local_path.startsWith('content://')) {
+                        await StorageAccessFramework.deleteAsync(entry.local_path);
+                    } else {
+                        await FileSystem.deleteAsync(entry.local_path);
+                    }
+                } catch (e) {}
+
+                const newId = `vaulted_${sanitizeId(newPath, filename)}`;
+                const updated = {
+                    ...entry,
+                    id: newId,
+                    is_vaulted: true,
+                    local_path: newPath,
+                    thumbnail_url: entry.type === 'image' ? newPath : ''
+                };
+
+                // Update state synchronously to ensure reliability during bulk operations
+                setLocalFiles(prev => {
+                    const newList = prev.map(e => e.id === id ? updated : e);
+                    AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
+                    return newList;
+                });
+                setEntries(prev => {
+                    const newList = prev.map(e => e.id === id ? updated : e);
+                    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+                    return newList;
+                });
+            } else {
+                // Unvaulting: mark as visible
+                const updated = { ...entry, is_vaulted: false };
+                setLocalFiles(prev => {
+                    const newList = prev.map(e => e.id === id ? updated : e);
+                    AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
+                    return newList;
+                });
+                setEntries(prev => {
+                    const newList = prev.map(e => e.id === id ? updated : e);
+                    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+                    return newList;
+                });
+            }
+        } catch (e) {
+            console.error("Vault operation failed", e);
+            throw e;
+        }
+    } else {
+        const updated = { ...entry, is_vaulted: willBeVaulted };
+        setEntries(prev => {
+            const newList = prev.map(e => e.id === id ? updated : e);
+            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+            return newList;
+        });
+        try {
+            await supabase.from('media_entries').update({ is_vaulted: willBeVaulted }).eq('id', id);
+        } catch (e) {}
     }
-  }, [entries, updateEntry]);
+  }, [entries, localFiles]);
 
   return (
-    <MediaContext.Provider value={{ entries, isLoading, addEntry, updateEntry, deleteEntry, toggleVault, refreshEntries }}>
+    <MediaContext.Provider value={{
+        entries,
+        localFiles,
+        isLoading,
+        isVaultUnlocked,
+        setVaultUnlocked: setIsVaultUnlocked,
+        addEntry,
+        updateEntry,
+        deleteEntry,
+        toggleVault,
+        refreshEntries,
+        scanLocalPaths
+    }}>
       {children}
     </MediaContext.Provider>
   );

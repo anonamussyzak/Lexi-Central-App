@@ -3,6 +3,7 @@ package com.example.myapplication
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,26 +11,39 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.myapplication.ui.theme.KirbyTheme
 import com.example.myapplication.ui.screens.GalleryScreen
 import com.example.myapplication.ui.screens.NotesScreen
+import com.example.myapplication.ui.screens.SettingsScreen
 
 class MainActivity : ComponentActivity() {
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        // Handle permissions granted/denied
+    ) { permissions: Map<String, Boolean> ->
+        val allGranted = permissions.all { it.value }
+        if (!allGranted) {
+            Toast.makeText(this, "Permissions required for gallery functionality.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize Supabase on app start
+        SupabaseManager.init(this)
         
         requestPermissions()
 
@@ -41,23 +55,32 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestPermissions() {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_33) {
-            permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
         } else {
-            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
-        requestPermissionLauncher.launch(permissions.toTypedArray())
+        requestPermissionLauncher.launch(permissions)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+data class NavigationItem(
+    val label: String,
+    val route: String,
+    val icon: ImageVector
+)
+
 @Composable
 fun MainApp() {
     val navController = rememberNavController()
-    var selectedItem by remember { mutableIntStateOf(0) }
-    val items = listOf("Notes", "Gallery")
-    val icons = listOf(Icons.Default.Notes, Icons.Default.Collections)
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+
+    val navigationItems = listOf(
+        NavigationItem("Notes", "notes", Icons.Default.Notes),
+        NavigationItem("Gallery", "gallery", Icons.Default.Collections),
+        NavigationItem("Settings", "settings", Icons.Default.Settings)
+    )
 
     Scaffold(
         bottomBar = {
@@ -65,14 +88,22 @@ fun MainApp() {
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
-                items.forEachIndexed { index, item ->
+                navigationItems.forEach { item ->
+                    val isSelected = currentDestination?.hierarchy?.any { it.route == item.route } == true
                     NavigationBarItem(
-                        icon = { Icon(icons[index], contentDescription = item) },
-                        label = { Text(item) },
-                        selected = selectedItem == index,
+                        icon = { Icon(item.icon, contentDescription = item.label) },
+                        label = { Text(item.label) },
+                        selected = isSelected,
                         onClick = {
-                            selectedItem = index
-                            navController.navigate(item.lowercase())
+                            if (currentDestination?.route != item.route) {
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
                         },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -93,6 +124,15 @@ fun MainApp() {
         ) {
             composable("notes") { NotesScreen() }
             composable("gallery") { GalleryScreen() }
+            composable("settings") { SettingsScreen() }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun FullAppPreview() {
+    KirbyTheme {
+        MainApp()
     }
 }

@@ -3,7 +3,9 @@ package com.example.myapplication.ui.screens
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -53,18 +55,20 @@ fun GalleryScreen() {
         } else if (videos.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "No videos found in 'Kirby' folder.\nCreate a folder named 'Kirby' in your Movies directory!",
+                    "No videos found in 'Kirby' folder.\nCreate a folder named 'Kirby' in your gallery and add some videos!",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
             ) {
-                items(videos) { video ->
+                items(videos, key = { it.id }) { video ->
                     VideoItem(video)
                 }
             }
@@ -106,7 +110,8 @@ fun VideoItem(video: Video) {
                     text = video.name,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondary,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
         }
@@ -115,50 +120,67 @@ fun VideoItem(video: Video) {
 
 private suspend fun fetchVideos(context: Context): List<Video> = withContext(Dispatchers.IO) {
     val videoList = mutableListOf<Video>()
-    val collection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_33) {
+    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
     } else {
         MediaStore.Video.Media.EXTERNAL_CONTENT_URI
     }
 
-    val projection = arrayOf(
+    val projection = mutableListOf(
         MediaStore.Video.Media._ID,
         MediaStore.Video.Media.DISPLAY_NAME,
         MediaStore.Video.Media.DURATION,
-        MediaStore.Video.Media.SIZE,
-        MediaStore.Video.Media.DATA
-    )
-
-    // Filter for "Kirby" in the path
-    val selection = "${MediaStore.Video.Media.DATA} LIKE ?"
-    val selectionArgs = arrayOf("%/Kirby/%")
-
-    context.contentResolver.query(
-        collection,
-        projection,
-        selection,
-        selectionArgs,
-        "${MediaStore.Video.Media.DATE_ADDED} DESC"
-    )?.use { cursor ->
-        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-        val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-        val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
-        val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
-        val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
-
-        while (cursor.moveToNext()) {
-            val id = cursor.getLong(idColumn)
-            val name = cursor.getString(nameColumn)
-            val duration = cursor.getInt(durationColumn)
-            val size = cursor.getInt(sizeColumn)
-            val path = cursor.getString(dataColumn)
-            val contentUri: Uri = ContentUris.withAppendedId(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                id
-            )
-
-            videoList.add(Video(id, name, duration, size, contentUri, path))
+        MediaStore.Video.Media.SIZE
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            add(MediaStore.Video.Media.RELATIVE_PATH)
+        } else {
+            add(MediaStore.Video.Media.DATA)
         }
+    }.toTypedArray()
+
+    // Filter for "Kirby" folder
+    val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
+    } else {
+        "${MediaStore.Video.Media.DATA} LIKE ?"
+    }
+    val selectionArgs = arrayOf("%Kirby%")
+
+    try {
+        context.contentResolver.query(
+            collection,
+            projection,
+            selection,
+            selectionArgs,
+            "${MediaStore.Video.Media.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
+            } else {
+                cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
+            }
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idColumn)
+                val name = cursor.getString(nameColumn) ?: "Unknown"
+                val duration = cursor.getInt(durationColumn)
+                val size = cursor.getInt(sizeColumn)
+                val path = cursor.getString(pathColumn) ?: ""
+                val contentUri: Uri = ContentUris.withAppendedId(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    id
+                )
+
+                videoList.add(Video(id, name, duration, size, contentUri, path))
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("GalleryScreen", "Error fetching videos", e)
     }
     videoList
 }

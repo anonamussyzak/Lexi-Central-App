@@ -1,4 +1,4 @@
-export type MediaType = 'video' | 'image';
+export type MediaType = 'video' | 'image' | 'voice' | 'mark' | 'note';
 
 export interface MediaEntry {
   id: string;
@@ -18,7 +18,7 @@ export interface MediaEntry {
   updated_at: string;
 }
 
-export type ThemeKey = 'kirby' | 'dark' | 'ocean' | 'forest';
+export type ThemeKey = 'kirby' | 'dark' | 'ocean' | 'forest' | 'midnight' | 'sunset' | 'lavender' | 'monochrome';
 
 export interface ThemeColors {
   primary: string;
@@ -55,6 +55,12 @@ export interface AppSettings {
   vaultEnabled: boolean;
   vaultPin: string;
   autoLockMinutes: number;
+  mediaPaths: string[];
+  noteTabs: string[];
+  galleryTabs: string[];
+  pinnedCountdownDates: string[];
+  bigTimerSeconds: number;
+  bigTimerName: string;
 }
 
 export interface MegaFileMetadata {

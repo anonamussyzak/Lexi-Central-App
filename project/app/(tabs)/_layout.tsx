@@ -1,8 +1,10 @@
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, Platform } from 'react-native';
-import { Grid2x2, Calendar, Lock, Settings } from 'lucide-react-native';
+import { Grid2x2, Clock, Lock, Settings, ShieldCheck, Globe, FileText } from 'lucide-react-native';
 import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
+import NetInfo from '@react-native-community/netinfo';
+import { useState, useEffect } from 'react';
 
 function TabIcon({ icon: Icon, focused, color }: { icon: any; focused: boolean; color: string }) {
   return (
@@ -15,6 +17,19 @@ function TabIcon({ icon: Icon, focused, color }: { icon: any; focused: boolean; 
 export default function TabLayout() {
   const { settings } = useSettings();
   const theme = THEMES[settings.theme];
+  const [isConnected, setIsConnected] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(!!state.isConnected);
+    });
+
+    NetInfo.fetch().then(state => {
+        setIsConnected(!!state.isConnected);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   return (
     <Tabs
@@ -24,9 +39,9 @@ export default function TabLayout() {
           backgroundColor: theme.tabBar,
           borderTopColor: theme.border,
           borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 88 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
-          paddingTop: 8,
+          height: Platform.OS === 'ios' ? 88 : 70,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+          paddingTop: 10,
           elevation: 0,
           shadowOpacity: 0,
         },
@@ -34,11 +49,20 @@ export default function TabLayout() {
         tabBarInactiveTintColor: theme.tabBarInactive,
         tabBarLabelStyle: {
           fontFamily: 'Nunito-Bold',
-          fontSize: 11,
+          fontSize: 10,
           marginTop: 2,
         },
       }}
     >
+      <Tabs.Screen
+        name="notes"
+        options={{
+          title: 'Notes',
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon icon={FileText} focused={focused} color={color} />
+          ),
+        }}
+      />
       <Tabs.Screen
         name="index"
         options={{
@@ -49,11 +73,21 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="hub"
+        options={{
+          title: 'Hub',
+          href: isConnected ? '/hub' : null,
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon icon={Globe} focused={focused} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Calendar',
+          title: 'Time',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon icon={Calendar} focused={focused} color={color} />
+            <TabIcon icon={Clock} focused={focused} color={color} />
           ),
         }}
       />
@@ -62,7 +96,7 @@ export default function TabLayout() {
         options={{
           title: 'Vault',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon icon={Lock} focused={focused} color={color} />
+            <TabIcon icon={ShieldCheck} focused={focused} color={color} />
           ),
         }}
       />
@@ -75,6 +109,7 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen name="voice" options={{ href: null }} />
     </Tabs>
   );
 }
