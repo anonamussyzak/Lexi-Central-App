@@ -21,9 +21,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            // Use property syntax for better compatibility in Kotlin DSL
-            shrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
