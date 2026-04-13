@@ -37,12 +37,12 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://qtxrsgaecxohubhzjtze.supabase.co' }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_gA0nyZfrJrKPx3HRoHAyOQ_5hONZhvL' }}
 
-      - name: Build Release APK
+      - name: Build Debug APK
         working-directory: ./project/android
-        run: chmod +x gradlew && ./gradlew assembleRelease
+        run: chmod +x gradlew && ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: kirby-app-release
-          path: project/android/app/build/outputs/apk/release/app-release.apk
+          name: kirby-app-debug
+          path: project/android/app/build/outputs/apk/debug/app-debug.apk

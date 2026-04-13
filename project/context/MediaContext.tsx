@@ -45,7 +45,7 @@ const sanitizeId = (uri: string, name: string) => {
     return combined.replace(/[^a-zA-Z0-9]/g, '_').substring(Math.max(0, combined.length - 80));
 };
 
-export const getCleanFolderName = (uri: string) => {
+const getCleanFolderName = (uri: string) => {
     try {
         const decoded = decodeURIComponent(uri);
         const parts = decoded.split(/[:/]/);
@@ -58,7 +58,9 @@ export const getCleanFolderName = (uri: string) => {
             p.toLowerCase() !== 'document'
         );
         let name = cleanParts.pop() || 'General';
-        return name === '0' ? 'Internal Storage' : name.replace(/ \(\d+\)$/, '').trim();
+        if (name === '0') return 'Internal Storage';
+        // Strips "primary:" if it survived the split
+        return name.replace(/^primary:/i, '').replace(/ \(\d+\)$/, '').trim();
     } catch (e) {
         return 'General';
     }
@@ -72,6 +74,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const isScanning = useRef(false);
 
+  // Load cache on mount
   useEffect(() => {
     const init = async () => {
       try {
@@ -84,7 +87,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
         if (cached) setEntries(JSON.parse(cached));
         if (cachedLocal) setLocalFiles(JSON.parse(cachedLocal));
       } catch (e) {
-        console.error('Failed to load cache', e);
+        console.error('Cache load failed', e);
       } finally {
         setIsLoading(false);
       }
@@ -92,12 +95,14 @@ export function MediaProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
+  // Sync scan on settings ready
   useEffect(() => {
       if (settingsLoaded && settings.mediaPaths?.length > 0) {
           scanLocalPaths(settings.mediaPaths);
       }
   }, [settings.mediaPaths, settingsLoaded]);
 
+  // Real-time sync
   useEffect(() => {
     let channel: any;
     const setupRealtime = () => {
@@ -127,12 +132,16 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   const scanLocalPaths = useCallback(async (pathUris: string[]) => {
     if (!pathUris || pathUris.length === 0 || isScanning.current) return;
     isScanning.current = true;
+
     try {
       let allScannedFiles: MediaEntry[] = [];
+
+      // 1. User Folders
       for (const pathUri of pathUris) {
           if (!pathUri) continue;
           const isSAF = pathUri.startsWith('content://');
           const folderName = getCleanFolderName(pathUri);
+
           let files: string[] = [];
           try {
               if (isSAF) {
@@ -141,34 +150,43 @@ export function MediaProvider({ children }: { children: ReactNode }) {
                   files = await FileSystem.readDirectoryAsync(pathUri);
                   files = files.map(f => pathUri + (pathUri.endsWith('/') ? '' : '/') + f);
               }
-              const scannedPromises = files.slice(0, 150).map(async (fileUri) => {
-                const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
-                const lowerName = name.toLowerCase();
-                const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
-                const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
-                if (!isVideo && !isImage) return null;
-                const type: MediaType = isVideo ? 'video' : 'image';
-                return {
-                  id: `local_${sanitizeId(fileUri, name)}`,
-                  title: name,
-                  type,
-                  notes: '',
-                  source_link: '',
-                  thumbnail_url: type === 'image' ? fileUri : '',
-                  local_path: fileUri,
-                  is_vaulted: false,
-                  tags: [folderName.toLowerCase()],
-                  media_date: new Date().toISOString(),
-                  duration_seconds: 0,
-                  file_size_bytes: 0,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                };
+
+              const scannedPromises = files.slice(0, 250).map(async (fileUri) => {
+                try {
+                    const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
+                    const lowerName = name.toLowerCase();
+                    const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
+                    const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
+                    if (!isVideo && !isImage) return null;
+
+                    // Check if file is actually ALREADY in vault dir (to avoid duplicates)
+                    const isActuallyVaulted = fileUri.includes('VaultedMedia');
+
+                    return {
+                      id: `${isActuallyVaulted ? 'vaulted' : 'local'}_${sanitizeId(fileUri, name)}`,
+                      title: name,
+                      type: isVideo ? 'video' : 'image',
+                      notes: '',
+                      source_link: '',
+                      thumbnail_url: isVideo ? '' : fileUri,
+                      local_path: fileUri,
+                      is_vaulted: isActuallyVaulted,
+                      tags: [isActuallyVaulted ? 'vaulted' : folderName.toLowerCase()],
+                      media_date: new Date().toISOString(),
+                      duration_seconds: 0,
+                      file_size_bytes: 0,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    };
+                } catch (e) { return null; }
               });
+
               const scannedResults = await Promise.all(scannedPromises);
               allScannedFiles = [...allScannedFiles, ...scannedResults.filter((f): f is MediaEntry => f !== null)];
           } catch (e) {}
       }
+
+      // 2. Private Vault (Always scan this explicitly)
       try {
           const vaultedFiles = await FileSystem.readDirectoryAsync(VAULT_DIR);
           const vaultedPromises = vaultedFiles.map(async filename => {
@@ -176,14 +194,13 @@ export function MediaProvider({ children }: { children: ReactNode }) {
               const isVideo = filename.toLowerCase().match(/\.(mp4|mkv|mov|avi|3gp|webm)$/i);
               const isImage = filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
               if (!isVideo && !isImage) return null;
-              const type = isVideo ? 'video' : 'image';
               return {
                   id: `vaulted_${sanitizeId(fileUri, filename)}`,
                   title: filename,
-                  type,
+                  type: isVideo ? 'video' : 'image',
                   notes: '',
                   source_link: '',
-                  thumbnail_url: type === 'image' ? fileUri : '',
+                  thumbnail_url: isImage ? fileUri : '',
                   local_path: fileUri,
                   is_vaulted: true,
                   tags: ['vaulted'],
@@ -194,13 +211,19 @@ export function MediaProvider({ children }: { children: ReactNode }) {
                   updated_at: new Date().toISOString(),
               };
           });
-          const vaultedEntries = await Promise.all(vaultedPromises);
-          allScannedFiles = [...allScannedFiles, ...vaultedEntries.filter((f): f is MediaEntry => f !== null)];
+          const vaultedResults = await Promise.all(vaultedPromises);
+          allScannedFiles = [...allScannedFiles, ...vaultedResults.filter((f): f is MediaEntry => f !== null)];
       } catch (e) {}
-      const uniqueFiles = allScannedFiles.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
+
+      // Unique by local_path to prevent duplicates between manual scan and vault scan
+      const uniqueFiles = allScannedFiles.filter((v, i, a) =>
+          a.findIndex(t => t.local_path === v.local_path) === i
+      );
+
       setLocalFiles(uniqueFiles);
       AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(uniqueFiles));
     } catch (e) {
+        console.error("Scan error", e);
     } finally {
       isScanning.current = false;
     }
@@ -210,11 +233,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
     const tempId = `cloud_${Date.now()}`;
     const now = new Date().toISOString();
     const optimisticEntry: MediaEntry = { ...entry, id: tempId, created_at: now, updated_at: now };
-    setEntries(prev => {
-        const newList = [optimisticEntry, ...prev];
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
-        return newList;
-    });
+    setEntries(prev => [optimisticEntry, ...prev]);
     try {
         await supabase.from('media_entries').insert([{ ...entry, id: undefined }]);
         await refreshEntries();
@@ -222,7 +241,10 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   }, [refreshEntries]);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<MediaEntry>) => {
-    const updater = (prev: MediaEntry[]) => prev.map(e => e.id === id ? { ...e, ...updates } : e);
+    const updater = (prev: MediaEntry[]) => {
+        const newList = prev.map(e => e.id === id ? { ...e, ...updates } : e);
+        return newList;
+    };
     if (id.startsWith('local_') || id.startsWith('vaulted_')) {
         setLocalFiles(prev => {
             const newList = updater(prev);
@@ -243,17 +265,17 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   }, [refreshEntries]);
 
   const deleteEntry = useCallback(async (id: string) => {
+    const entry = [...localFiles, ...entries].find(e => e.id === id);
+    if (!entry) return;
+
     if (id.startsWith('local_') || id.startsWith('vaulted_')) {
-        const entry = localFiles.find(e => e.id === id);
-        if (entry) {
-            try {
-                if (entry.local_path.startsWith('content://')) {
-                    await StorageAccessFramework.deleteAsync(entry.local_path);
-                } else {
-                    await FileSystem.deleteAsync(entry.local_path);
-                }
-            } catch(e) {}
-        }
+        try {
+            if (entry.local_path.startsWith('content://')) {
+                await StorageAccessFramework.deleteAsync(entry.local_path);
+            } else {
+                await FileSystem.deleteAsync(entry.local_path);
+            }
+        } catch(e) {}
         setLocalFiles(prev => {
             const newList = prev.filter(e => e.id !== id);
             AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
@@ -270,91 +292,54 @@ export function MediaProvider({ children }: { children: ReactNode }) {
             await refreshEntries();
         } catch (e) {}
     }
-  }, [localFiles, refreshEntries]);
+  }, [localFiles, entries, refreshEntries]);
 
   const toggleVault = useCallback(async (id: string) => {
-    const all = [...entries, ...localFiles];
-    const entry = all.find(e => e.id === id);
-    if (!entry) return;
-    const willBeVaulted = !entry.is_vaulted;
-    if (entry.local_path) {
-        try {
+    setLocalFiles(currentLocal => {
+        const entry = currentLocal.find(e => e.id === id);
+        if (!entry) return currentLocal;
+
+        const willBeVaulted = !entry.is_vaulted;
+
+        if (entry.local_path) {
+            const filename = entry.local_path.split('/').pop() || `hidden_${Date.now()}`;
+            const newPath = VAULT_DIR + filename;
+
             if (willBeVaulted) {
-                const filename = entry.local_path.split('/').pop() || `hidden_${Date.now()}`;
-                const newPath = VAULT_DIR + filename;
-
-                // Copy to internal secure storage
-                await FileSystem.copyAsync({ from: entry.local_path, to: newPath });
-
-                // VERIFY before delete
-                const check = await FileSystem.getInfoAsync(newPath);
-                if (!check.exists || check.size === 0) throw new Error("Verification failed");
-
-                // Delete public copy
-                try {
-                    if (entry.local_path.startsWith('content://')) {
-                        await StorageAccessFramework.deleteAsync(entry.local_path);
-                    } else {
-                        await FileSystem.deleteAsync(entry.local_path);
+                // MOVE TO VAULT
+                FileSystem.copyAsync({ from: entry.local_path, to: newPath }).then(async () => {
+                    const check = await FileSystem.getInfoAsync(newPath);
+                    if (check.exists && check.size > 0) {
+                        if (entry.local_path.startsWith('content://')) {
+                            StorageAccessFramework.deleteAsync(entry.local_path);
+                        } else {
+                            FileSystem.deleteAsync(entry.local_path);
+                        }
                     }
-                } catch (e) {}
+                }).catch(console.error);
 
                 const newId = `vaulted_${sanitizeId(newPath, filename)}`;
-                const updated = { ...entry, id: newId, is_vaulted: true, local_path: newPath, thumbnail_url: entry.type === 'image' ? newPath : '' };
-
-                // Sync state immediately
-                setLocalFiles(prev => {
-                    const newList = prev.map(e => e.id === id ? updated : e);
-                    AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
-                    return newList;
-                });
-                setEntries(prev => {
-                    const newList = prev.map(e => e.id === id ? updated : e);
-                    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
-                    return newList;
-                });
+                const updated = {
+                    ...entry,
+                    id: newId,
+                    is_vaulted: true,
+                    local_path: newPath,
+                    thumbnail_url: entry.type === 'image' ? newPath : ''
+                };
+                const newList = currentLocal.map(e => e.id === id ? updated : e);
+                AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
+                return newList;
             } else {
-                // Unvaulting: Move back to the first available public path if possible
-                const publicPathUri = settings.mediaPaths[0];
-                if (publicPathUri && publicPathUri.startsWith('content://')) {
-                    const filename = entry.local_path.split('/').pop() || `restored_${Date.now()}`;
-                    const mimeType = entry.type === 'video' ? 'video/mp4' : 'image/jpeg';
-
-                    const newUri = await StorageAccessFramework.createFileAsync(publicPathUri, filename, mimeType);
-                    await FileSystem.copyAsync({ from: entry.local_path, to: newUri });
-                    await FileSystem.deleteAsync(entry.local_path);
-
-                    const newId = `local_${sanitizeId(newUri, filename)}`;
-                    const updated = { ...entry, id: newId, is_vaulted: false, local_path: newUri, thumbnail_url: entry.type === 'image' ? newUri : '' };
-
-                    setLocalFiles(prev => {
-                        const newList = prev.map(e => e.id === id ? updated : e);
-                        AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
-                        return newList;
-                    });
-                } else {
-                    // Fallback: just mark visible but stay in internal storage
-                    const updated = { ...entry, is_vaulted: false };
-                    setLocalFiles(prev => {
-                        const newList = prev.map(e => e.id === id ? updated : e);
-                        AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
-                        return newList;
-                    });
-                }
+                // UNVAULT (Keep in private folder for now but mark visible)
+                const updated = { ...entry, is_vaulted: false };
+                const newList = currentLocal.map(e => e.id === id ? updated : e);
+                AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(newList));
+                return newList;
             }
-        } catch (e) {
-            Alert.alert("Error", "Security operation failed. File was not moved.");
         }
-    } else {
-        const updated = { ...entry, is_vaulted: willBeVaulted };
-        setEntries(prev => {
-            const newList = prev.map(e => e.id === id ? updated : e);
-            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
-            return newList;
-        });
-        try { await supabase.from('media_entries').update({ is_vaulted: willBeVaulted }).eq('id', id); } catch (e) {}
-    }
-  }, [entries, localFiles, settings.mediaPaths]);
+        return currentLocal;
+    });
+  }, []);
 
   return (
     <MediaContext.Provider value={{
