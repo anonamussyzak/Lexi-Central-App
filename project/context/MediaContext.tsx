@@ -58,7 +58,7 @@ export const getCleanFolderName = (uri: string) => {
             p.toLowerCase() !== 'document'
         );
         let name = cleanParts.pop() || 'General';
-        return name === '0' ? 'Internal Storage' : name;
+        return name === '0' ? 'Internal Storage' : name.replace(/ \(\d+\)$/, '').trim();
     } catch (e) {
         return 'General';
     }
