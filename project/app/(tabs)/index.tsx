@@ -18,7 +18,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
 import MediaCard from '@/components/gallery/MediaCard';
 
-type FilterType = 'all' | 'video' | 'image' | 'voice';
+type FilterType = 'all' | 'video' | 'image';
 
 export default function GalleryScreen() {
   const router = useRouter();
@@ -50,7 +50,6 @@ export default function GalleryScreen() {
     }
   }, [settings.galleryTabs, settingsLoaded]);
 
-  // Removed "Vault" tab from gallery tabs
   const displayTabs = useMemo(() => [...(settings.galleryTabs || [])], [settings.galleryTabs]);
 
   const allMedia = useMemo(() => [...entries, ...localFiles], [entries, localFiles]);
@@ -61,10 +60,10 @@ export default function GalleryScreen() {
 
     return allMedia
       .filter(e => {
-          // EXCLUDE VAULTED ITEMS FROM GALLERY
+          // EXCLUDE VAULTED ITEMS FROM GALLERY - only exist in Vault screen
           if (e.is_vaulted) return false;
-          // EXCLUDE NOTES FROM GALLERY
-          if (e.type === 'note') return false;
+          // EXCLUDE NOTES AND VOICE MEMOS FROM GALLERY - only exist in Notes screen
+          if (e.type === 'note' || e.type === 'voice') return false;
           // Gallery Tab Filter
           return e.tags.some(tag => tag.toLowerCase() === tabLower);
       })
@@ -183,7 +182,6 @@ export default function GalleryScreen() {
       { key: 'all', icon: Filter, label: 'All' },
       { key: 'video', icon: Film, label: 'Videos' },
       { key: 'image', icon: ImageIcon, label: 'Images' },
-      { key: 'voice', icon: Mic, label: 'Memos' },
   ];
 
   return (
@@ -275,26 +273,26 @@ export default function GalleryScreen() {
                                         isEditingTabs && { borderColor: theme.primary, borderWidth: 1 }
                                     ]}
                                 >
-                                    {isEditingTabs && editingTabIdx === settingsIdx ? (
-                                        <TextInput
-                                            value={tabRenameValue}
-                                            onChangeText={setTabRenameValue}
-                                            style={[styles.tabInput, { color: theme.text }]}
-                                            autoFocus
-                                            onSubmitEditing={saveTabRename}
-                                            onBlur={saveTabRename}
-                                        />
+                                    {isEditingTabs ? (
+                                        <View style={styles.tabEditWrapper}>
+                                            <TextInput
+                                                value={tabRenameValue}
+                                                onChangeText={setTabRenameValue}
+                                                style={[styles.tabInput, { color: theme.text }]}
+                                                autoFocus
+                                                onSubmitEditing={saveTabRename}
+                                                onBlur={saveTabRename}
+                                            />
+                                            <TouchableOpacity onPress={() => { setEditingTabIdx(settingsIdx); setTabRenameValue(tab); }}>
+                                                <Edit2 size={12} color={theme.textMuted} style={{ marginLeft: 5 }} />
+                                            </TouchableOpacity>
+                                        </View>
                                     ) : (
                                         <View style={styles.tabContent}>
                                             <Text style={[
                                                 styles.galleryTabText,
                                                 { color: isSelected && !isEditingTabs ? 'white' : theme.textSecondary }
                                             ]}>{tab}</Text>
-                                            {isEditingTabs && (
-                                                <TouchableOpacity onPress={() => { setEditingTabIdx(settingsIdx); setTabRenameValue(tab); }}>
-                                                    <Edit2 size={12} color={theme.textMuted} style={{ marginLeft: 5 }} />
-                                                </TouchableOpacity>
-                                            )}
                                         </View>
                                     )}
                                 </TouchableOpacity>
@@ -346,6 +344,7 @@ const styles = StyleSheet.create({
   tabsWrapper: { marginBottom: 12 },
   tabsScroll: { gap: 8, paddingRight: 20 },
   galleryTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.05)', justifyContent: 'center' },
+  tabEditWrapper: { flexDirection: 'row', alignItems: 'center' },
   tabContent: { flexDirection: 'row', alignItems: 'center' },
   galleryTabText: { fontFamily: 'Nunito-Bold', fontSize: 13 },
   tabInput: { fontSize: 13, fontFamily: 'Nunito-Bold', padding: 0, minWidth: 60 },
