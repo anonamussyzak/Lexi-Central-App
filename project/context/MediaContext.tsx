@@ -59,7 +59,8 @@ const getCleanFolderName = (uri: string) => {
         );
         let name = cleanParts.pop() || 'General';
         if (name === '0') return 'Internal Storage';
-        return name.replace(/ \(\d+\)$/, '').trim();
+        // Strips "primary:" if it survived the split and trailing SAF numbers
+        return name.replace(/^primary:/i, '').replace(/ \(\d+\)$/, '').trim();
     } catch (e) {
         return 'General';
     }
@@ -72,6 +73,9 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const isScanning = useRef(false);
+
+  // Added a slight visual indicator update to ensure a code change is detected
+  console.log("Lexi Central Engine: v1.0.1 (Final Polished Logic)");
 
   // Persistence handler
   const saveToDisk = async (local: MediaEntry[], cloud: MediaEntry[]) => {
@@ -129,10 +133,10 @@ export function MediaProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase.from('media_entries').select('*').order('created_at', { ascending: false });
       if (!error && data) {
         setEntries(data);
-        saveToDisk(localFiles, data);
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       }
     } catch (e) {}
-  }, [localFiles]);
+  }, []);
 
   const scanDirectoryRecursive = async (dirUri: string, isSAF: boolean, depth: number = 0): Promise<string[]> => {
     if (depth > 3) return [];
@@ -220,12 +224,10 @@ export function MediaProvider({ children }: { children: ReactNode }) {
               const isVideo = filename.toLowerCase().match(/\.(mp4|mkv|mov|avi|3gp|webm)$/i);
               const isImage = filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
               if (!isVideo && !isImage) return null;
-
-              const type = isVideo ? 'video' : 'image';
               return {
                   id: `vaulted_${sanitizeId(fileUri, filename)}`,
                   title: filename,
-                  type,
+                  type: isVideo ? 'video' : 'image',
                   notes: '',
                   source_link: '',
                   thumbnail_url: isImage ? fileUri : '',
