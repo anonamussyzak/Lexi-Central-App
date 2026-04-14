@@ -36,8 +36,8 @@ const MediaContext = createContext<MediaContextValue>({
   scanLocalPaths: async () => {},
 });
 
-const STORAGE_KEY = '@lexi_central_notes_v6';
-const LOCAL_FILES_KEY = '@lexi_central_local_files_v6';
+const STORAGE_KEY = '@lexi_central_notes_v7';
+const LOCAL_FILES_KEY = '@lexi_central_local_files_v7';
 const VAULT_DIR = `${FileSystem.documentDirectory}VaultedMedia/`;
 
 const sanitizeId = (uri: string, name: string) => {
@@ -59,7 +59,6 @@ const getCleanFolderName = (uri: string) => {
         );
         let name = cleanParts.pop() || 'General';
         if (name === '0') return 'Internal Storage';
-        // Strips "primary:" if it survived the split and trailing SAF numbers
         return name.replace(/^primary:/i, '').replace(/ \(\d+\)$/, '').trim();
     } catch (e) {
         return 'General';
@@ -73,9 +72,6 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const isScanning = useRef(false);
-
-  // Added a slight visual indicator update to ensure a code change is detected
-  console.log("Lexi Central Engine: v1.0.1 (Final Polished Logic)");
 
   // Persistence handler
   const saveToDisk = async (local: MediaEntry[], cloud: MediaEntry[]) => {
@@ -133,10 +129,10 @@ export function MediaProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase.from('media_entries').select('*').order('created_at', { ascending: false });
       if (!error && data) {
         setEntries(data);
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        saveToDisk(localFiles, data);
       }
     } catch (e) {}
-  }, []);
+  }, [localFiles]);
 
   const scanDirectoryRecursive = async (dirUri: string, isSAF: boolean, depth: number = 0): Promise<string[]> => {
     if (depth > 3) return [];
@@ -191,7 +187,6 @@ export function MediaProvider({ children }: { children: ReactNode }) {
             const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
             if (!isVideo && !isImage) return null;
 
-            // Critical: Exclude already vaulted items from public scan
             if (fileUri.includes('VaultedMedia')) return null;
 
             return {
@@ -216,7 +211,6 @@ export function MediaProvider({ children }: { children: ReactNode }) {
       const results = await Promise.all(scanPromises);
       allScannedFiles = results.flat();
 
-      // Add Private Vault Files
       try {
           const vaultedFiles = await FileSystem.readDirectoryAsync(VAULT_DIR);
           const vaultedPromises = vaultedFiles.map(async filename => {
@@ -241,8 +235,8 @@ export function MediaProvider({ children }: { children: ReactNode }) {
                   updated_at: new Date().toISOString(),
               };
           });
-          const vaultedResults = await Promise.all(vaultedPromises);
-          allScannedFiles = [...allScannedFiles, ...vaultedResults.filter((f): f is MediaEntry => f !== null)];
+          const vaultedEntries = await Promise.all(vaultedPromises);
+          allScannedFiles = [...allScannedFiles, ...vaultedEntries.filter((f): f is MediaEntry => f !== null)];
       } catch (e) {}
 
       const uniqueFiles = allScannedFiles.filter((v, i, a) =>
@@ -355,18 +349,28 @@ export function MediaProvider({ children }: { children: ReactNode }) {
                     return newList;
                 });
             } else {
-                // Restore logic
-                const targetFolder = settings.mediaPaths[0];
-                if (targetFolder && targetFolder.startsWith('content://')) {
-                    const newUri = await StorageAccessFramework.createFileAsync(targetFolder, entry.title, entry.type === 'video' ? 'video/mp4' : 'image/jpeg');
-                    await FileSystem.copyAsync({ from: entry.local_path, to: newUri });
-                    await FileSystem.deleteAsync(entry.local_path);
-                    const updated = { ...entry, id: `local_${sanitizeId(newUri, entry.title)}`, is_vaulted: false, local_path: newUri, thumbnail_url: entry.type === 'image' ? newUri : '' };
-                    setLocalFiles(prev => {
-                        const newList = prev.map(e => e.id === id ? updated : e);
-                        saveToDisk(newList, entries);
-                        return newList;
-                    });
+                // Restoration
+                const target = settings.mediaPaths && settings.mediaPaths.length > 0 ? settings.mediaPaths[0] : null;
+                if (target && target.startsWith('content://')) {
+                    try {
+                        const newUri = await StorageAccessFramework.createFileAsync(target, entry.title, entry.type === 'video' ? 'video/mp4' : 'image/jpeg');
+                        await FileSystem.copyAsync({ from: entry.local_path, to: newUri });
+                        await FileSystem.deleteAsync(entry.local_path);
+                        const updated = { ...entry, id: `local_${sanitizeId(newUri, entry.title)}`, is_vaulted: false, local_path: newUri, thumbnail_url: entry.type === 'image' ? newUri : '' };
+                        setLocalFiles(prev => {
+                            const newList = prev.map(e => e.id === id ? updated : e);
+                            saveToDisk(newList, entries);
+                            return newList;
+                        });
+                    } catch (e) {
+                        // Fallback
+                        const updated = { ...entry, is_vaulted: false };
+                        setLocalFiles(prev => {
+                            const newList = prev.map(e => e.id === id ? updated : e);
+                            saveToDisk(newList, entries);
+                            return newList;
+                        });
+                    }
                 } else {
                     const updated = { ...entry, is_vaulted: false };
                     setLocalFiles(prev => {
