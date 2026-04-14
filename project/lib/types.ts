@@ -59,7 +59,7 @@ export interface AppSettings {
   noteTabs: string[];
   galleryTabs: string[];
   pinnedCountdownDates: string[];
-  bigTimerSeconds: number;
+  bigTimerTarget: string | null;
   bigTimerName: string;
 }
 

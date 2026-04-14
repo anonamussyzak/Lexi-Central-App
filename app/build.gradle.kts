@@ -21,6 +21,7 @@ android {
 
     buildTypes {
         release {
+            // Set to false to ensure maximum stability for this standalone build
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
