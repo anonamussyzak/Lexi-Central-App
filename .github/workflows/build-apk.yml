@@ -42,14 +42,20 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://qtxrsgaecxohubhzjtze.supabase.co' }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_gA0nyZfrJrKPx3HRoHAyOQ_5hONZhvL' }}
 
+      - name: Generate Keystore
+        working-directory: ./project/android
+        run: |
+          mkdir -p keystore
+          keytool -genkeypair -v -storetype PKCS12 -keystore keystore/keystore.jks -alias keyalias -keyalg RSA -keysize 2048 -validity 10000 -storepass storepassword -keypass keypassword -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
+
       - name: Build Standalone APK
         working-directory: ./project/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: lexi-central-debug-standalone
-          path: project/android/app/build/outputs/apk/debug/app-debug.apk
+          name: lexi-central-release-standalone
+          path: project/android/app/build/outputs/apk/release/app-release.apk
