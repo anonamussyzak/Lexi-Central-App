@@ -60,6 +60,10 @@ export default function SettingsScreen() {
   };
 
   const pickDirectory = async () => {
+    if (!FileSystem.StorageAccessFramework) {
+      Alert.alert('Not Available', 'Folder selection requires a standalone app. Please install the APK from GitHub Actions.');
+      return;
+    }
     try {
       const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (permissions.granted) {
