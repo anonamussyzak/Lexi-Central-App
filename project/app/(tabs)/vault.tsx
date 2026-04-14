@@ -9,18 +9,17 @@ import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 export default function VaultScreen() {
-  const { entries, localFiles } = useMedia();
-  const { settings } = useSettings();
-  const theme = THEMES[settings.theme];
+  const { entries, localFiles, isVaultUnlocked, setVaultUnlocked } = useMedia();
+  const { settings, isLoaded: settingsLoaded } = useSettings();
+  const theme = THEMES[settings?.theme || 'kirby'] || THEMES.kirby;
   const { width } = useWindowDimensions();
   const router = useRouter();
   const [pin, setPin] = useState('');
-  const [isUnlocked, setIsUnlocked] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
-  const vaultedEntries = [...entries, ...localFiles].filter(e => e.is_vaulted);
+  const vaultedEntries = [...(entries || []), ...(localFiles || [])].filter(e => e.is_vaulted);
 
-  const cols = settings.gridColumns;
+  const cols = settings?.gridColumns || 2;
   const padding = 16;
   const gap = 12;
   const cardWidth = (width - padding * 2 - gap * (cols - 1)) / cols;
@@ -37,7 +36,7 @@ export default function VaultScreen() {
               });
 
               if (result.success) {
-                  setIsUnlocked(true);
+                  setVaultUnlocked(true);
                   setPin('');
               }
           }
@@ -47,17 +46,17 @@ export default function VaultScreen() {
   };
 
   const forceLock = () => {
-      setIsUnlocked(false);
+      setVaultUnlocked(false);
       setPin('');
   };
 
   useEffect(() => {
-      if (settings.vaultEnabled && !isUnlocked) {
+      if (settings?.vaultEnabled && !isVaultUnlocked && settingsLoaded) {
           handleBiometricAuth();
       }
-  }, [settings.vaultEnabled]);
+  }, [settings?.vaultEnabled, settingsLoaded]);
 
-  if (!isUnlocked && settings.vaultEnabled) {
+  if (!isVaultUnlocked && settings?.vaultEnabled) {
       return (
           <View style={[styles.unlockContainer, { backgroundColor: theme.background }]}>
               <View style={[styles.lockCircle, { backgroundColor: theme.primary + '20' }]}>
@@ -75,7 +74,7 @@ export default function VaultScreen() {
                     onChangeText={(text) => {
                         setPin(text);
                         if (text === settings.vaultPin) {
-                            setIsUnlocked(true);
+                            setVaultUnlocked(true);
                             setPin('');
                         }
                     }}

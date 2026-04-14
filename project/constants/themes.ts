@@ -172,7 +172,7 @@ export const THEMES: Record<ThemeKey, ThemeColors> = {
 };
 
 export const DEFAULT_SETTINGS = {
-  theme: 'kirby' as ThemeKey,
+  theme: 'dark' as ThemeKey,
   gridColumns: 2 as 2 | 3,
   roundedCorners: 24,
   shadowIntensity: 6,
@@ -193,5 +193,5 @@ export const DEFAULT_SETTINGS = {
 };
 
 export function getSafeTheme(themeKey: any): ThemeColors {
-    return THEMES[themeKey as ThemeKey] || THEMES.kirby;
+    return THEMES[themeKey as ThemeKey] || THEMES.dark;
 }
