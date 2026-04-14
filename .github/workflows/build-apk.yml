@@ -22,7 +22,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Cache node_modules
         uses: actions/cache@v3
@@ -34,7 +33,7 @@ jobs:
 
       - name: Install Dependencies
         working-directory: ./project
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Expo Prebuild
         working-directory: ./project
