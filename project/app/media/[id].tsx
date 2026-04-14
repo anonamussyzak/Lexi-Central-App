@@ -36,6 +36,17 @@ export default function MediaDetailScreen() {
       return allMedia.find(e => e.id === id);
   }, [id, allMedia]);
 
+  if (!entry) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        <Text style={{ color: theme.text, fontSize: 18 }}>Media not found</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
+          <Text style={{ color: theme.primary, fontSize: 16 }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const filteredSortedMedia = useMemo(() => {
     if (!entry) return [];
     return allMedia
@@ -87,7 +98,6 @@ export default function MediaDetailScreen() {
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 10,
       onPanResponderMove: (_, gestureState) => {
-        // Only allow swiping down if already expanded
         if (gestureState.dy > 0 && isPanelExpanded) {
            panelTranslateY.setValue(gestureState.dy);
         }

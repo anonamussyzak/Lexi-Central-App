@@ -45,7 +45,7 @@ const sanitizeId = (uri: string, name: string) => {
     return combined.replace(/[^a-zA-Z0-9]/g, '_').substring(Math.max(0, combined.length - 80));
 };
 
-const getCleanFolderName = (uri: string) => {
+export const getCleanFolderName = (uri: string) => {
     try {
         const decoded = decodeURIComponent(uri);
         const parts = decoded.split(/[:/]/);
@@ -73,7 +73,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const isScanning = useRef(false);
 
-  // Persistence side-effects
+  // Persistence handler
   const saveToDisk = async (local: MediaEntry[], cloud: MediaEntry[]) => {
       try {
           await AsyncStorage.setItem(LOCAL_FILES_KEY, JSON.stringify(local));
@@ -103,7 +103,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-      if (settingsLoaded && settings.mediaPaths?.length > 0) {
+      if (settingsLoaded && settings.mediaPaths && settings.mediaPaths.length > 0) {
           scanLocalPaths(settings.mediaPaths);
       }
   }, [settings.mediaPaths, settingsLoaded]);
@@ -131,106 +131,102 @@ export function MediaProvider({ children }: { children: ReactNode }) {
         setEntries(data);
         AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       }
-    } catch (e) {
-      console.error('Failed to refresh entries', e);
-    }
+    } catch (e) {}
   }, []);
-
-  const scanDirectoryRecursive = async (dirUri: string, isSAF: boolean): Promise<string[]> => {
-    let files: string[] = [];
-    try {
-      let entries: string[] = [];
-      if (isSAF) {
-        entries = await StorageAccessFramework.readDirectoryAsync(dirUri);
-      } else {
-        entries = await FileSystem.readDirectoryAsync(dirUri);
-        entries = entries.map(f => dirUri + (dirUri.endsWith('/') ? '' : '/') + f);
-      }
-      for (const entry of entries) {
-        if (entry.includes('VaultedMedia')) continue;
-        if (entry.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg|jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i)) {
-          files.push(entry);
-        } else {
-          // Try to recurse into subfolders (catch errors for files)
-          try {
-            const subFiles = await scanDirectoryRecursive(entry, isSAF);
-            files = files.concat(subFiles);
-          } catch {}
-        }
-      }
-    } catch {}
-    return files;
-  };
 
   const scanLocalPaths = useCallback(async (pathUris: string[]) => {
     if (!pathUris || pathUris.length === 0 || isScanning.current) return;
     isScanning.current = true;
+
     try {
       let allScannedFiles: MediaEntry[] = [];
       for (const pathUri of pathUris) {
-        if (!pathUri) continue;
-        const isSAF = pathUri.startsWith('content://');
-        const folderName = getCleanFolderName(pathUri);
-        let files: string[] = await scanDirectoryRecursive(pathUri, isSAF);
-        const scannedPromises = files.slice(0, 150).map(async (fileUri) => {
-          const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
-          const lowerName = name.toLowerCase();
-          const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
-          const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
-          if (!isVideo && !isImage) return null;
-          const type: MediaType = isVideo ? 'video' : 'image';
-          return {
-            id: `local_${sanitizeId(fileUri, name)}`,
-            title: name,
-            type,
-            notes: '',
-            source_link: '',
-            thumbnail_url: type === 'image' ? fileUri : '',
-            local_path: fileUri,
-            is_vaulted: false,
-            tags: [folderName.toLowerCase()],
-            media_date: new Date().toISOString(),
-            duration_seconds: 0,
-            file_size_bytes: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-        });
-        const scannedResults = await Promise.all(scannedPromises);
-        allScannedFiles = [...allScannedFiles, ...scannedResults.filter((f): f is MediaEntry => f !== null)];
+          if (!pathUri) continue;
+          const isSAF = pathUri.startsWith('content://');
+          const folderName = getCleanFolderName(pathUri);
+
+          let files: string[] = [];
+          try {
+              if (isSAF) {
+                  files = await StorageAccessFramework.readDirectoryAsync(pathUri);
+              } else {
+                  files = await FileSystem.readDirectoryAsync(pathUri);
+                  files = files.map(f => pathUri + (pathUri.endsWith('/') ? '' : '/') + f);
+              }
+
+              const scannedPromises = files.slice(0, 300).map(async (fileUri) => {
+                try {
+                    const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
+                    const lowerName = name.toLowerCase();
+                    const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
+                    const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
+                    if (!isVideo && !isImage) return null;
+
+                    // Critical: Exclude already vaulted items from public scan
+                    if (fileUri.includes('VaultedMedia')) return null;
+
+                    const type: MediaType = isVideo ? 'video' : 'image';
+                    return {
+                      id: `local_${sanitizeId(fileUri, name)}`,
+                      title: name,
+                      type,
+                      notes: '',
+                      source_link: '',
+                      thumbnail_url: type === 'image' ? fileUri : '',
+                      local_path: fileUri,
+                      is_vaulted: false,
+                      tags: [folderName.toLowerCase()],
+                      media_date: new Date().toISOString(),
+                      duration_seconds: 0,
+                      file_size_bytes: 0,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    };
+                } catch (e) { return null; }
+              });
+
+              const scannedResults = await Promise.all(scannedPromises);
+              allScannedFiles = [...allScannedFiles, ...scannedResults.filter((f): f is MediaEntry => f !== null)];
+          } catch (e) {}
       }
+
+      // Add Private Vault Files
       try {
           const vaultedFiles = await FileSystem.readDirectoryAsync(VAULT_DIR);
           const vaultedPromises = vaultedFiles.map(async filename => {
-              const fileUri = VAULT_DIR + filename;
-              const isVideo = filename.toLowerCase().match(/\.(mp4|mkv|mov|avi|3gp|webm)$/i);
-              const isImage = filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
-              if (!isVideo && !isImage) return null;
-              const type = isVideo ? 'video' : 'image';
-              return {
-                  id: `vaulted_${sanitizeId(fileUri, filename)}`,
-                  title: filename,
-                  type,
-                  notes: '',
-                  source_link: '',
-                  thumbnail_url: type === 'image' ? fileUri : '',
-                  local_path: fileUri,
-                  is_vaulted: true,
-                  tags: ['vaulted'],
-                  media_date: new Date().toISOString(),
-                  duration_seconds: 0,
-                  file_size_bytes: 0,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-              };
+              try {
+                  const fileUri = VAULT_DIR + filename;
+                  const isVideo = filename.toLowerCase().match(/\.(mp4|mkv|mov|avi|3gp|webm)$/i);
+                  const isImage = filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
+                  if (!isVideo && !isImage) return null;
+
+                  const type = isVideo ? 'video' : 'image';
+                  return {
+                      id: `vaulted_${sanitizeId(fileUri, filename)}`,
+                      title: filename,
+                      type,
+                      notes: '',
+                      source_link: '',
+                      thumbnail_url: type === 'image' ? fileUri : '',
+                      local_path: fileUri,
+                      is_vaulted: true,
+                      tags: ['vaulted'],
+                      media_date: new Date().toISOString(),
+                      duration_seconds: 0,
+                      file_size_bytes: 0,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                  };
+              } catch (e) { return null; }
           });
           const vaultedEntries = await Promise.all(vaultedPromises);
           allScannedFiles = [...allScannedFiles, ...vaultedEntries.filter((f): f is MediaEntry => f !== null)];
       } catch (e) {}
-      const uniqueFiles = allScannedFiles.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-      console.log('Scanned files count:', uniqueFiles.length);
+
+      const uniqueFiles = allScannedFiles.filter((v, i, a) => a.findIndex(t => t.local_path === v.local_path) === i);
       setLocalFiles(uniqueFiles);
       saveToDisk(uniqueFiles, entries);
+    } catch (e) {
     } finally {
       isScanning.current = false;
     }
@@ -248,33 +244,26 @@ export function MediaProvider({ children }: { children: ReactNode }) {
     try {
         await supabase.from('media_entries').insert([{ ...entry, id: undefined }]);
         await refreshEntries();
-    } catch (e) {
-        console.error('Failed to add entry to cloud', e);
-        Alert.alert('Error', 'Failed to save note to cloud. Please check your connection.');
-    }
+    } catch (e) {}
   }, [localFiles, refreshEntries]);
 
   const updateEntry = useCallback(async (id: string, updates: Partial<MediaEntry>) => {
-    const updater = (prev: MediaEntry[]) => prev.map(e => e.id === id ? { ...e, ...updates } : e);
     if (id.startsWith('local_') || id.startsWith('vaulted_')) {
         setLocalFiles(prev => {
-            const newList = updater(prev);
+            const newList = prev.map(e => e.id === id ? { ...e, ...updates } : e);
             saveToDisk(newList, entries);
             return newList;
         });
     } else {
         setEntries(prev => {
-            const newList = updater(prev);
+            const newList = prev.map(e => e.id === id ? { ...e, ...updates } : e);
             saveToDisk(localFiles, newList);
             return newList;
         });
         try {
             await supabase.from('media_entries').update(updates).eq('id', id);
             await refreshEntries();
-        } catch (e) {
-            console.error('Failed to update entry', e);
-            Alert.alert('Error', 'Failed to update note. Please check your connection.');
-        }
+        } catch (e) {}
     }
   }, [localFiles, entries, refreshEntries]);
 
@@ -304,10 +293,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
         try {
             await supabase.from('media_entries').delete().eq('id', id);
             await refreshEntries();
-        } catch (e) {
-            console.error('Failed to delete entry', e);
-            Alert.alert('Error', 'Failed to delete note. Please check your connection.');
-        }
+        } catch (e) {}
     }
   }, [localFiles, entries, refreshEntries]);
 

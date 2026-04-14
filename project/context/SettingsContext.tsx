@@ -3,6 +3,7 @@ import { AppSettings } from '@/lib/types';
 import { DEFAULT_SETTINGS } from '@/constants/themes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
+import { Alert } from 'react-native';
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -82,7 +83,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // Auto-persist changes
   useEffect(() => {
       if (isLoaded) {
-          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(settings)).catch(console.error);
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(settings)).catch((e) => {
+              console.error('Failed to save settings', e);
+              Alert.alert('Error', 'Failed to save settings automatically.');
+          });
       }
   }, [settings, isLoaded]);
 
@@ -90,8 +94,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     settings,
     updateSetting,
     saveSettings: async (silent: boolean = false) => {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-        if (!silent) alert('Settings Saved!');
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+            if (!silent) Alert.alert('Success', 'Settings Saved!');
+        } catch (e) {
+            console.error('Failed to save settings', e);
+            Alert.alert('Error', 'Failed to save settings.');
+        }
     },
     initializeStorage,
     isLoaded

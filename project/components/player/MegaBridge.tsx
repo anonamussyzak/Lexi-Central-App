@@ -23,8 +23,8 @@ interface MegaBridgeProps {
   megaUrl: string;
 }
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://qtxrsgaecxohubhzjtze.supabase.co';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_gA0nyZfrJrKPx3HRoHAyOQ_5hONZhvL';
 
 export default function MegaBridge({ megaUrl }: MegaBridgeProps) {
   const { settings } = useSettings();
