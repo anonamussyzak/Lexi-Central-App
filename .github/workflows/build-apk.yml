@@ -17,7 +17,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -26,9 +25,17 @@ jobs:
           cache: 'npm'
           cache-dependency-path: project/package-lock.json
 
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: project/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('project/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
       - name: Install Dependencies
         working-directory: ./project
-        run: npm install
+        run: npm install --no-package-lock
 
       - name: Expo Prebuild
         working-directory: ./project
@@ -39,10 +46,12 @@ jobs:
 
       - name: Build Standalone APK
         working-directory: ./project/android
-        run: chmod +x gradlew && ./gradlew assembleRelease
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: kirby-app-release
+          name: lexi-central-release-standalone
           path: project/android/app/build/outputs/apk/release/app-release.apk
