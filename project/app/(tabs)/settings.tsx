@@ -7,7 +7,6 @@ import * as FileSystem from 'expo-file-system';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 const { width } = Dimensions.get('window');
-const { StorageAccessFramework } = FileSystem;
 
 export default function SettingsScreen() {
   const { settings, updateSetting, isLoaded } = useSettings();
@@ -62,19 +61,20 @@ export default function SettingsScreen() {
 
   const pickDirectory = async () => {
     try {
-      if (!StorageAccessFramework) {
-          Alert.alert('Not Available', 'Folder selection requires a standalone app. Please install the APK from GitHub Actions.');
+      const SAF = FileSystem.StorageAccessFramework;
+      if (!SAF) {
+          Alert.alert('Error', 'Storage Access Framework is not available in this environment. Please ensure you are using the standalone APK.');
           return;
       }
 
-      const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      const permissions = await SAF.requestDirectoryPermissionsAsync();
       if (permissions.granted) {
         const directoryUri = permissions.directoryUri;
         if (!settings.mediaPaths.includes(directoryUri)) {
             updateSetting('mediaPaths', [...settings.mediaPaths, directoryUri]);
-            Alert.alert('Success', 'Folder added to media paths');
+            Alert.alert('Success', 'Folder added to your gallery!');
         } else {
-            Alert.alert('Info', 'Folder already added');
+            Alert.alert('Info', 'This folder is already in your scan paths.');
         }
       }
     } catch (e: any) {
