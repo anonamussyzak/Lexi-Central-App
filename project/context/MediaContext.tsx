@@ -45,7 +45,7 @@ const sanitizeId = (uri: string, name: string) => {
     return combined.replace(/[^a-zA-Z0-9]/g, '_').substring(Math.max(0, combined.length - 80));
 };
 
-export const getCleanFolderName = (uri: string) => {
+const getCleanFolderName = (uri: string) => {
     try {
         const decoded = decodeURIComponent(uri);
         const parts = decoded.split(/[:/]/);
@@ -134,78 +134,95 @@ export function MediaProvider({ children }: { children: ReactNode }) {
     } catch (e) {}
   }, []);
 
-  const scanDirectoryRecursive = async (dirUri: string, isSAF: boolean): Promise<string[]> => {
+  const scanDirectoryRecursive = async (dirUri: string, isSAF: boolean, depth: number = 0): Promise<string[]> => {
+    // Limit recursion depth to prevent infinite loops or huge scans
+    if (depth > 3) return [];
+
     let files: string[] = [];
     try {
       let entries: string[] = [];
       if (isSAF) {
         entries = await StorageAccessFramework.readDirectoryAsync(dirUri);
       } else {
-        entries = await FileSystem.readDirectoryAsync(dirUri);
-        entries = entries.map(f => dirUri + (dirUri.endsWith('/') ? '' : '/') + f);
+        const dirContent = await FileSystem.readDirectoryAsync(dirUri);
+        entries = dirContent.map(f => dirUri + (dirUri.endsWith('/') ? '' : '/') + f);
       }
+
       for (const entry of entries) {
         if (entry.includes('VaultedMedia')) continue;
-        let fullUri: string;
-        if (isSAF) {
-          const baseUri = dirUri.split('/document/')[0] + '/document/';
-          const documentId = decodeURIComponent(dirUri.split('/document/')[1]);
-          const childDocumentId = documentId + '/' + entry;
-          fullUri = baseUri + encodeURIComponent(childDocumentId);
+
+        const lowerEntry = entry.toLowerCase();
+        const isMedia = lowerEntry.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg|jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
+
+        if (isMedia) {
+          files.push(entry);
         } else {
-          fullUri = entry; // already full path
-        }
-        if (fullUri.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg|jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i)) {
-          files.push(fullUri);
-        } else {
-          // Try to recurse into subfolders (catch errors for files)
-          try {
-            const subFiles = await scanDirectoryRecursive(fullUri, isSAF);
-            files = files.concat(subFiles);
-          } catch {}
+          // If it's a directory URI (doesn't look like a file with extension), try to recurse
+          // In SAF, directory entries often end with %2F or don't have a dot in the last segment
+          const segments = entry.split('/');
+          const lastSegment = segments[segments.length - 1];
+          if (!lastSegment.includes('.') || depth === 0) {
+            try {
+              const subFiles = await scanDirectoryRecursive(entry, isSAF, depth + 1);
+              files = files.concat(subFiles);
+            } catch {}
+          }
         }
       }
-    } catch {}
+    } catch (e) {}
     return files;
   };
 
   const scanLocalPaths = useCallback(async (pathUris: string[]) => {
     if (!pathUris || pathUris.length === 0 || isScanning.current) return;
     isScanning.current = true;
+
     try {
       let allScannedFiles: MediaEntry[] = [];
-      for (const pathUri of pathUris) {
-        if (!pathUri) continue;
-        const isSAF = pathUri.startsWith('content://');
-        const folderName = getCleanFolderName(pathUri);
-        let files: string[] = await scanDirectoryRecursive(pathUri, isSAF);
-        const scannedPromises = files.slice(0, 150).map(async (fileUri) => {
-          const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
-          const lowerName = name.toLowerCase();
-          const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
-          const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
-          if (!isVideo && !isImage) return null;
-          const type: MediaType = isVideo ? 'video' : 'image';
-          return {
-            id: `local_${sanitizeId(fileUri, name)}`,
-            title: name,
-            type,
-            notes: '',
-            source_link: '',
-            thumbnail_url: type === 'image' ? fileUri : '',
-            local_path: fileUri,
-            is_vaulted: false,
-            tags: [folderName.toLowerCase()],
-            media_date: new Date().toISOString(),
-            duration_seconds: 0,
-            file_size_bytes: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-        });
-        const scannedResults = await Promise.all(scannedPromises);
-        allScannedFiles = [...allScannedFiles, ...scannedResults.filter((f): f is MediaEntry => f !== null)];
-      }
+
+      // Use Promise.all to scan all top-level paths in parallel
+      const scanPromises = pathUris.map(async (pathUri) => {
+          if (!pathUri) return [];
+          const isSAF = pathUri.startsWith('content://');
+          const folderName = getCleanFolderName(pathUri);
+
+          const files = await scanDirectoryRecursive(pathUri, isSAF);
+
+          // Map to MediaEntry objects
+          const mappedFiles = files.slice(0, 300).map((fileUri) => {
+            const name = decodeURIComponent(fileUri).split('/').pop() || 'Unknown';
+            const lowerName = name.toLowerCase();
+            const isVideo = lowerName.match(/\.(mp4|mkv|mov|avi|3gp|webm|flv|ts|m4v|wmv|mpg|mpeg)$/);
+            const isImage = lowerName.match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/);
+
+            if (!isVideo && !isImage) return null;
+
+            const type: MediaType = isVideo ? 'video' : 'image';
+            return {
+              id: `local_${sanitizeId(fileUri, name)}`,
+              title: name,
+              type,
+              notes: '',
+              source_link: '',
+              thumbnail_url: type === 'image' ? fileUri : '',
+              local_path: fileUri,
+              is_vaulted: false,
+              tags: [folderName.toLowerCase()],
+              media_date: new Date().toISOString(),
+              duration_seconds: 0,
+              file_size_bytes: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+          });
+
+          return mappedFiles.filter((f): f is MediaEntry => f !== null);
+      });
+
+      const results = await Promise.all(scanPromises);
+      allScannedFiles = results.flat();
+
+      // Add Private Vault Files
       try {
           const vaultedFiles = await FileSystem.readDirectoryAsync(VAULT_DIR);
           const vaultedPromises = vaultedFiles.map(async filename => {
@@ -213,6 +230,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
               const isVideo = filename.toLowerCase().match(/\.(mp4|mkv|mov|avi|3gp|webm)$/i);
               const isImage = filename.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|heic|svg|tiff|tif)$/i);
               if (!isVideo && !isImage) return null;
+
               const type = isVideo ? 'video' : 'image';
               return {
                   id: `vaulted_${sanitizeId(fileUri, filename)}`,
@@ -231,13 +249,20 @@ export function MediaProvider({ children }: { children: ReactNode }) {
                   updated_at: new Date().toISOString(),
               };
           });
-          const vaultedEntries = await Promise.all(vaultedPromises);
-          allScannedFiles = [...allScannedFiles, ...vaultedEntries.filter((f): f is MediaEntry => f !== null)];
+          const vaultedResults = await Promise.all(vaultedPromises);
+          allScannedFiles = [...allScannedFiles, ...vaultedResults.filter((f): f is MediaEntry => f !== null)];
       } catch (e) {}
-      const uniqueFiles = allScannedFiles.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-      console.log('Scanned files count:', uniqueFiles.length);
+
+      // Unique by path to avoid duplicates
+      const uniqueFiles = allScannedFiles.filter((v, i, a) =>
+          a.findIndex(t => t.local_path === v.local_path) === i
+      );
+
+      console.log(`Total unique files found: ${uniqueFiles.length}`);
       setLocalFiles(uniqueFiles);
       saveToDisk(uniqueFiles, entries);
+    } catch (e) {
+      console.error('Final consolidated scan error:', e);
     } finally {
       isScanning.current = false;
     }
