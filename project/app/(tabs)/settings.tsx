@@ -66,10 +66,15 @@ export default function SettingsScreen() {
         const directoryUri = permissions.directoryUri;
         if (!settings.mediaPaths.includes(directoryUri)) {
             updateSetting('mediaPaths', [...settings.mediaPaths, directoryUri]);
+            Alert.alert('Success', 'Folder added to media paths');
+        } else {
+            Alert.alert('Info', 'Folder already selected');
         }
+      } else {
+        Alert.alert('Permission Denied', 'Cannot access the selected folder');
       }
     } catch (e: any) {
-      Alert.alert('Error', 'Could not open folder selector');
+      Alert.alert('Error', 'Could not open folder selector: ' + e.message);
     }
   };
 
