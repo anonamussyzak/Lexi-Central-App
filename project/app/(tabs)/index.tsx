@@ -57,14 +57,19 @@ export default function GalleryScreen() {
   const visibleEntries = useMemo(() => {
     const searchLower = search.toLowerCase();
     const tabLower = activeGalleryTab.toLowerCase();
+    const isFirstTab = activeGalleryTab === settings.galleryTabs[0];
 
     return allMedia
       .filter(e => {
-          // EXCLUDE VAULTED ITEMS FROM GALLERY - only exist in Vault screen
+          // EXCLUDE VAULTED ITEMS FROM GALLERY
           if (e.is_vaulted) return false;
-          // EXCLUDE NOTES AND VOICE MEMOS FROM GALLERY - only exist in Notes screen
+          // EXCLUDE NOTES AND VOICE MEMOS FROM GALLERY
           if (e.type === 'note' || e.type === 'voice') return false;
-          // Gallery Tab Filter
+
+          // Tab Filter logic: First tab is "All/General" catch-all
+          if (isFirstTab) return true;
+
+          // Otherwise, match folder name tags
           return e.tags.some(tag => tag.toLowerCase() === tabLower);
       })
       .filter(e => filter === 'all' ? true : e.type === filter)
@@ -73,7 +78,7 @@ export default function GalleryScreen() {
         : e.title.toLowerCase().includes(searchLower) ||
           e.notes.toLowerCase().includes(searchLower)
       );
-  }, [allMedia, filter, search, activeGalleryTab]);
+  }, [allMedia, filter, search, activeGalleryTab, settings.galleryTabs]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -333,7 +338,7 @@ const styles = StyleSheet.create({
   header: { paddingTop: 60, paddingHorizontal: 16, paddingBottom: 12 },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, height: 40 },
   normalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flex: 1 },
-  headerRightActions: { flexDirection: 'row', gap: 5 },
+  headerRightActions: { flexDirection: 'row', gap: 10 },
   headerTitle: { fontSize: 28 },
   searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, gap: 10, marginBottom: 12 },
   searchInput: { flex: 1, fontFamily: 'Nunito-Regular', fontSize: 14 },
