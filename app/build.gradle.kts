@@ -22,7 +22,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = false // Set to false to avoid unresolved reference in some AGP versions
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

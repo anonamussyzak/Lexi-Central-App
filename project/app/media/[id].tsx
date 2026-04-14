@@ -246,8 +246,8 @@ export default function MediaDetailScreen() {
 
                 {/* YT Style Controls Overlay */}
                 {showControls && (
-                    <View style={styles.ytControlsOverlay}>
-                        <View style={styles.centerControls}>
+                    <View style={styles.ytControlsOverlay} pointerEvents="box-none">
+                        <View style={styles.centerControls} pointerEvents="box-none">
                             <TouchableOpacity onPress={goToPrevious} disabled={currentIndex === 0}>
                                 <ChevronLeft size={40} color={currentIndex === 0 ? "rgba(255,255,255,0.3)" : "white"} fill={currentIndex === 0 ? "transparent" : "white"} />
                             </TouchableOpacity>
@@ -259,7 +259,7 @@ export default function MediaDetailScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.bottomControls}>
+                        <View style={styles.bottomControls} pointerEvents="box-none">
                             <View style={styles.progressBarBg}>
                                 <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: theme.primary }]} />
                             </View>
@@ -299,8 +299,8 @@ export default function MediaDetailScreen() {
             <Image source={{ uri: entry.local_path || entry.thumbnail_url }} style={styles.imageViewer} resizeMode="contain" />
             <Pressable style={StyleSheet.absoluteFill} onPress={toggleControls} />
             {showControls && (
-                <View style={styles.imageControlsOverlay}>
-                    <View style={styles.centerControls}>
+                <View style={styles.imageControlsOverlay} pointerEvents="box-none">
+                    <View style={styles.centerControls} pointerEvents="box-none">
                         <TouchableOpacity onPress={goToPrevious} disabled={currentIndex === 0}>
                             <ChevronLeft size={40} color={currentIndex === 0 ? "rgba(255,255,255,0.3)" : "white"} fill={currentIndex === 0 ? "transparent" : "white"} />
                         </TouchableOpacity>
@@ -316,7 +316,7 @@ export default function MediaDetailScreen() {
 
         {/* Top Header - Unified for both Image/Video */}
         {showControls && (
-            <View style={[styles.headerOverlay, isFullScreen && { top: 20 }]}>
+            <View style={[styles.headerOverlay, isFullScreen && { top: 20 }]} pointerEvents="box-none">
                 <TouchableOpacity style={styles.circBtn} onPress={() => router.back()}>
                     <ArrowLeft size={24} color="#FFF" />
                 </TouchableOpacity>

@@ -1,21 +1,30 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Kirby App - ProGuard Rules
+# These rules prevent the optimizer from breaking Supabase and Serialization
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# --- Kotlin Serialization ---
+-keepattributes *Annotation*, InnerClasses, Signature, Exceptions, ElementValuePairs
+-keepclassmembers class ** {
+    @kotlinx.serialization.SerialName <fields>;
+}
+-keepclassmembers class * {
+    *** Companion;
+}
+-keepclasseswithmembers class * {
+    @kotlinx.serialization.Serializable <fields>;
+}
+-keep class kotlinx.serialization.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# --- Supabase & Ktor ---
+-keep class io.github.jan.supabase.** { *; }
+-keep class io.ktor.** { *; }
+-keep class okhttp3.** { *; }
+-dontwarn io.ktor.**
+-dontwarn io.github.jan.supabase.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# --- Jetpack Compose ---
+-keep class androidx.compose.runtime.** { *; }
+-dontwarn androidx.compose.runtime.**
+
+# --- Zak Branding & Core ---
+-keep class com.example.myapplication.Note { *; }
+-keep class com.example.myapplication.Video { *; }
