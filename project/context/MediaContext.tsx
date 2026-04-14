@@ -257,10 +257,10 @@ export function MediaProvider({ children }: { children: ReactNode }) {
       const uniqueFiles = allScannedFiles.filter((v, i, a) =>
           a.findIndex(t => t.local_path === v.local_path) === i
       );
-
-      console.log(`Total unique files found: ${uniqueFiles.length}`);
+      console.log('Scanned files count:', uniqueFiles.length);
       setLocalFiles(uniqueFiles);
       saveToDisk(uniqueFiles, entries);
+      Alert.alert('Scan Complete', 'Found ' + uniqueFiles.length + ' media files');
     } catch (e) {
       console.error('Final consolidated scan error:', e);
     } finally {

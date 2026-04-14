@@ -7,11 +7,12 @@ import * as FileSystem from 'expo-file-system';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 const { width } = Dimensions.get('window');
+const { StorageAccessFramework } = FileSystem;
 
 export default function SettingsScreen() {
   const { settings, updateSetting, isLoaded } = useSettings();
 
-  // Use a fallback for theme to prevent crash if settings haven't fully loaded or theme is missing
+  // Use a fallback for theme
   const themeKey = settings?.theme || 'kirby';
   const theme = THEMES[themeKey] || THEMES.kirby;
 
@@ -60,22 +61,21 @@ export default function SettingsScreen() {
   };
 
   const pickDirectory = async () => {
-    if (!FileSystem.StorageAccessFramework) {
-      Alert.alert('Not Available', 'Folder selection requires a standalone app. Please install the APK from GitHub Actions.');
-      return;
-    }
     try {
-      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!StorageAccessFramework) {
+          Alert.alert('Not Available', 'Folder selection requires a standalone app. Please install the APK from GitHub Actions.');
+          return;
+      }
+
+      const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (permissions.granted) {
         const directoryUri = permissions.directoryUri;
         if (!settings.mediaPaths.includes(directoryUri)) {
             updateSetting('mediaPaths', [...settings.mediaPaths, directoryUri]);
             Alert.alert('Success', 'Folder added to media paths');
         } else {
-            Alert.alert('Info', 'Folder already selected');
+            Alert.alert('Info', 'Folder already added');
         }
-      } else {
-        Alert.alert('Permission Denied', 'Cannot access the selected folder');
       }
     } catch (e: any) {
       Alert.alert('Error', 'Could not open folder selector: ' + e.message);
