@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, Alert, Modal, Dimensions } from 'react-native';
 import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
-import { Palette, Layout, Folder, ChevronRight, Lock, Check, Trash2, Fingerprint, Edit3, Plus, X, ShieldCheck, Monitor, Sliders, Smartphone } from 'lucide-react-native';
+import { Palette, Layout, Folder, ChevronRight, Lock, Check, Trash2, Fingerprint, Edit3, Plus, X, ShieldCheck, Monitor, Sliders, Smartphone, Clock } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system';
 import * as LocalAuthentication from 'expo-local-authentication';
 
@@ -63,7 +63,7 @@ export default function SettingsScreen() {
     try {
       const SAF = FileSystem.StorageAccessFramework;
       if (!SAF) {
-          Alert.alert('Error', 'Storage Access Framework is not available in this environment. Please ensure you are using the standalone APK.');
+          Alert.alert('Error', 'Storage Access Framework is not available in this environment.');
           return;
       }
 
@@ -247,7 +247,32 @@ export default function SettingsScreen() {
                     editable={isPinEditable}
                     keyboardType="numeric"
                     maxLength={4}
+                    onBlur={() => { if (settings.vaultPin) setIsPinEditable(false); }}
                 />
+            </View>
+            <View style={[styles.switchItem, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                <View style={styles.settingLeft}>
+                    <View style={[styles.iconContainer, { backgroundColor: theme.surfaceElevated }]}>
+                        <Clock size={20} color={theme.primary} />
+                    </View>
+                    <Text style={[styles.settingLabel, { color: theme.text }]}>Auto-Lock (mins)</Text>
+                </View>
+                <View style={styles.durationControls}>
+                    {[0, 1, 5, 10].map((mins) => (
+                        <TouchableOpacity
+                            key={mins}
+                            style={[
+                                styles.durationBtn,
+                                { backgroundColor: settings.autoLockMinutes === mins ? theme.primary : theme.surfaceElevated }
+                            ]}
+                            onPress={() => updateSetting('autoLockMinutes', mins)}
+                        >
+                            <Text style={[styles.durationText, { color: settings.autoLockMinutes === mins ? 'white' : theme.text }]}>
+                                {mins === 0 ? 'Off' : mins}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
             </View>
           </View>
         </View>
@@ -303,7 +328,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 60 },
   header: { paddingHorizontal: 25, marginBottom: 25 },
   title: { fontSize: 36, lineHeight: 40 },
-  subtitle: { fontSize: 14, fontFamily: 'Nunito-SemiBold', marginTop: 5 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 100 },
   section: { marginBottom: 30 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, marginLeft: 5 },
@@ -311,29 +335,32 @@ const styles = StyleSheet.create({
   sectionCard: { overflow: 'hidden', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8 },
   settingItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1 },
   switchItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18 },
+  inputItem: { padding: 18 },
   settingLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   iconContainer: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   settingLabel: { fontSize: 16, fontFamily: 'Nunito-Bold' },
   settingValue: { fontSize: 12, fontFamily: 'Nunito-SemiBold', marginTop: 2 },
-  togglePill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  togglePillText: { fontSize: 12, fontFamily: 'Nunito-ExtraBold' },
-  inputItem: { padding: 18 },
-  addBtn: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginLeft: 'auto' },
+  togglePill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  togglePillText: { fontSize: 12, fontFamily: 'Nunito-Bold' },
+  pinInput: { height: 50, borderBottomWidth: 1, fontSize: 18, fontFamily: 'Nunito-Bold', marginTop: 10, paddingHorizontal: 10 },
+  unlockBtn: { marginLeft: 10, padding: 5 },
+  durationControls: { flexDirection: 'row', gap: 8 },
+  durationBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  durationText: { fontSize: 12, fontFamily: 'Nunito-Bold' },
+  addBtn: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginLeft: 'auto' },
   pathList: { marginTop: 15, gap: 8 },
-  pathRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderRadius: 12 },
-  pathText: { flex: 1, fontSize: 12, fontFamily: 'Nunito-Medium', marginRight: 10 },
-  pathRemove: { padding: 4 },
-  unlockBtn: { marginLeft: 10 },
-  pinInput: { marginTop: 15, height: 50, fontSize: 24, textAlign: 'center', borderBottomWidth: 1, fontFamily: 'Nunito-ExtraBold', letterSpacing: 10 },
+  pathRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderRadius: 10 },
+  pathText: { fontSize: 12, fontFamily: 'Nunito-SemiBold', flex: 1 },
+  pathRemove: { padding: 5 },
   footer: { alignItems: 'center', marginTop: 20 },
-  versionText: { fontSize: 11, fontFamily: 'Nunito-Bold', opacity: 0.6 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalContent: { padding: 25, height: '70%', elevation: 20 },
+  versionText: { fontSize: 12, opacity: 0.5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { height: '70%', padding: 25 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
   modalTitle: { fontSize: 24, fontFamily: 'Nunito-ExtraBold' },
-  themeGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 15 },
-  themeCard: { width: (width - 80) / 2, padding: 15, borderRadius: 20, alignItems: 'center', position: 'relative' },
-  themePreview: { width: 50, height: 50, borderRadius: 25, marginBottom: 10, elevation: 3 },
-  themeCardText: { fontSize: 14, fontFamily: 'Nunito-Bold' },
-  themeCheck: { position: 'absolute', top: 10, right: 10, width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  themeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'space-between' },
+  themeCard: { width: (width - 80) / 2, padding: 12, borderRadius: 16, position: 'relative' },
+  themePreview: { height: 40, borderRadius: 8, marginBottom: 8 },
+  themeCardText: { fontSize: 14, fontFamily: 'Nunito-Bold', textAlign: 'center' },
+  themeCheck: { position: 'absolute', top: 5, right: 5, width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
 });

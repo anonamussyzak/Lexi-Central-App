@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Search, Film, Image as ImageIcon, Mic, CheckCircle2, Circle, Lock, X, Plus, Check, FileText, Trash2, Filter, Layers, Edit2 } from 'lucide-react-native';
+import { Search, Film, Image as ImageIcon, CheckCircle2, Circle, Lock, X, Trash2, Filter, Layers } from 'lucide-react-native';
 import { useMedia } from '@/context/MediaContext';
 import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
@@ -22,54 +22,46 @@ type FilterType = 'all' | 'video' | 'image';
 
 export default function GalleryScreen() {
   const router = useRouter();
-  const { entries, localFiles, refreshEntries, scanLocalPaths, toggleVault, deleteEntry, isVaultUnlocked } = useMedia();
-  const { settings, updateSetting, saveSettings, isLoaded: settingsLoaded } = useSettings();
-  const theme = THEMES[settings.theme || 'kirby'] || THEMES.kirby;
+  const { entries, localFiles, refreshEntries, scanLocalPaths, toggleVault, deleteEntry } = useMedia();
+  const { settings, isLoaded: settingsLoaded } = useSettings();
+  const theme = THEMES[settings?.theme || 'kirby'] || THEMES.kirby;
   const { width } = useWindowDimensions();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
-  const [activeGalleryTab, setActiveGalleryTab] = useState(settings.galleryTabs[0] || 'General');
+  const [activeGalleryTab, setActiveGalleryTab] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  const [isEditingTabs, setIsEditingTabs] = useState(false);
-  const [editingTabIdx, setEditingTabIdx] = useState<number | null>(null);
-  const [tabRenameValue, setTabRenameValue] = useState('');
-
-  const cols = settings.gridColumns || 2;
+  const cols = settings?.gridColumns || 2;
   const gap = 12;
   const padding = 16;
   const cardWidth = (width - padding * 2 - gap * (cols - 1)) / cols;
 
   useEffect(() => {
-    if (settingsLoaded && !settings.galleryTabs.includes(activeGalleryTab)) {
-      setActiveGalleryTab(settings.galleryTabs[0] || 'General');
+    if (settingsLoaded && settings.galleryTabs && settings.galleryTabs.length > 0) {
+      if (!activeGalleryTab || !settings.galleryTabs.includes(activeGalleryTab)) {
+        setActiveGalleryTab(settings.galleryTabs[0]);
+      }
     }
-  }, [settings.galleryTabs, settingsLoaded]);
+  }, [settings?.galleryTabs, settingsLoaded]);
 
-  const displayTabs = useMemo(() => [...(settings.galleryTabs || [])], [settings.galleryTabs]);
+  const displayTabs = useMemo(() => [...(settings?.galleryTabs || [])], [settings?.galleryTabs]);
 
   const allMedia = useMemo(() => [...entries, ...localFiles], [entries, localFiles]);
 
   const visibleEntries = useMemo(() => {
     const searchLower = search.toLowerCase();
     const tabLower = activeGalleryTab.toLowerCase();
-    const isFirstTab = activeGalleryTab === settings.galleryTabs[0];
+    const isFirstTab = activeGalleryTab === settings?.galleryTabs?.[0];
 
     return allMedia
       .filter(e => {
-          // EXCLUDE VAULTED ITEMS FROM GALLERY
           if (e.is_vaulted) return false;
-          // EXCLUDE NOTES AND VOICE MEMOS FROM GALLERY
           if (e.type === 'note' || e.type === 'voice') return false;
-
-          // Tab Filter logic: First tab is "All/General" catch-all
           if (isFirstTab) return true;
-
-          // Otherwise, match folder name tags
           return e.tags.some(tag => tag.toLowerCase() === tabLower);
       })
       .filter(e => filter === 'all' ? true : e.type === filter)
@@ -78,16 +70,16 @@ export default function GalleryScreen() {
         : e.title.toLowerCase().includes(searchLower) ||
           e.notes.toLowerCase().includes(searchLower)
       );
-  }, [allMedia, filter, search, activeGalleryTab, settings.galleryTabs]);
+  }, [allMedia, filter, search, activeGalleryTab, settings?.galleryTabs]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await refreshEntries();
-    if (settings.mediaPaths && settings.mediaPaths.length > 0) {
+    if (settings?.mediaPaths && settings.mediaPaths.length > 0) {
         await scanLocalPaths(settings.mediaPaths);
     }
     setRefreshing(false);
-  }, [refreshEntries, scanLocalPaths, settings.mediaPaths]);
+  }, [refreshEntries, scanLocalPaths, settings?.mediaPaths]);
 
   const toggleSelect = useCallback((id: string) => {
       setSelectedIds(prev =>
@@ -118,11 +110,9 @@ export default function GalleryScreen() {
   const handleBulkVault = async () => {
       if (selectedIds.length === 0) return;
       try {
-          for (const id of selectedIds) {
-              await toggleVault(id);
-          }
+          await toggleVault(selectedIds);
           exitSelection();
-          Alert.alert("Success", "Items moved to Private Vault.");
+          Alert.alert("Success", `${selectedIds.length} items moved to Private Vault.`);
       } catch (e) {
           Alert.alert("Error", "Action failed.");
       }
@@ -143,16 +133,6 @@ export default function GalleryScreen() {
               }}
           ]
       );
-  };
-
-  const saveTabRename = () => {
-      if (editingTabIdx !== null && tabRenameValue.trim()) {
-          const newTabs = [...settings.galleryTabs];
-          newTabs[editingTabIdx] = tabRenameValue.trim();
-          updateSetting('galleryTabs', newTabs);
-          saveSettings(true);
-          setEditingTabIdx(null);
-      }
   };
 
   const renderMediaItem = useCallback(({ item }: { item: any }) => {
@@ -221,12 +201,6 @@ export default function GalleryScreen() {
                       >
                           <Layers size={18} color={theme.primary} />
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => setIsEditingTabs(!isEditingTabs)}
-                        style={[styles.iconBtn, { backgroundColor: theme.surfaceElevated, borderRadius: 10, marginLeft: 8 }]}
-                      >
-                          {isEditingTabs ? <Check size={18} color={theme.success} /> : <Edit2 size={18} color={theme.primary} />}
-                      </TouchableOpacity>
                   </View>
               </View>
           )}
@@ -266,40 +240,20 @@ export default function GalleryScreen() {
                 <View style={styles.tabsWrapper}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
                         {displayTabs.map((tab, idx) => {
-                            const settingsIdx = idx;
                             const isSelected = activeGalleryTab === tab;
                             return (
                                 <TouchableOpacity
                                     key={tab + idx}
-                                    onPress={() => !isEditingTabs && setActiveGalleryTab(tab)}
+                                    onPress={() => setActiveGalleryTab(tab)}
                                     style={[
                                         styles.galleryTab,
-                                        isSelected && !isEditingTabs && { backgroundColor: theme.primary },
-                                        isEditingTabs && { borderColor: theme.primary, borderWidth: 1 }
+                                        isSelected && { backgroundColor: theme.primary },
                                     ]}
                                 >
-                                    {isEditingTabs ? (
-                                        <View style={styles.tabEditWrapper}>
-                                            <TextInput
-                                                value={tabRenameValue}
-                                                onChangeText={setTabRenameValue}
-                                                style={[styles.tabInput, { color: theme.text }]}
-                                                autoFocus
-                                                onSubmitEditing={saveTabRename}
-                                                onBlur={saveTabRename}
-                                            />
-                                            <TouchableOpacity onPress={() => { setEditingTabIdx(settingsIdx); setTabRenameValue(tab); }}>
-                                                <Edit2 size={12} color={theme.textMuted} style={{ marginLeft: 5 }} />
-                                            </TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <View style={styles.tabContent}>
-                                            <Text style={[
-                                                styles.galleryTabText,
-                                                { color: isSelected && !isEditingTabs ? 'white' : theme.textSecondary }
-                                            ]}>{tab}</Text>
-                                        </View>
-                                    )}
+                                    <Text style={[
+                                        styles.galleryTabText,
+                                        { color: isSelected ? 'white' : theme.textSecondary }
+                                    ]}>{tab}</Text>
                                 </TouchableOpacity>
                             );
                         })}
@@ -349,10 +303,7 @@ const styles = StyleSheet.create({
   tabsWrapper: { marginBottom: 12 },
   tabsScroll: { gap: 8, paddingRight: 20 },
   galleryTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.05)', justifyContent: 'center' },
-  tabEditWrapper: { flexDirection: 'row', alignItems: 'center' },
-  tabContent: { flexDirection: 'row', alignItems: 'center' },
   galleryTabText: { fontFamily: 'Nunito-Bold', fontSize: 13 },
-  tabInput: { fontSize: 13, fontFamily: 'Nunito-Bold', padding: 0, minWidth: 60 },
   scroll: { flex: 1 },
   grid: { paddingBottom: 100 },
   cardWrapper: { marginBottom: 12 },

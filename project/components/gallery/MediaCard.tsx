@@ -16,9 +16,9 @@ interface MediaCardProps {
 
 export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
   const { settings } = useSettings();
-  const theme = THEMES[settings.theme];
+  const theme = THEMES[settings?.theme || 'kirby'] || THEMES.kirby;
   const scale = useSharedValue(1);
-  const radius = settings.roundedCorners;
+  const radius = settings?.roundedCorners ?? 24;
   const [thumb, setThumb] = useState<string | null>(entry.thumbnail_url || null);
 
   const animStyle = useAnimatedStyle(() => ({
@@ -36,7 +36,7 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
           });
           if (isMounted) setThumb(uri);
         } catch (e) {
-          console.warn("Thumbnail generation failed for:", entry.local_path);
+          // Thumbnail generation failed
         }
       }
     };
@@ -62,8 +62,8 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
             borderRadius: radius,
             backgroundColor: theme.surface,
             shadowColor: theme.cardShadow,
-            shadowOpacity: settings.shadowIntensity / 10,
-            elevation: settings.shadowIntensity,
+            shadowOpacity: (settings?.shadowIntensity ?? 5) / 10,
+            elevation: settings?.shadowIntensity ?? 5,
           },
         ]}
       >
@@ -91,7 +91,7 @@ export default function MediaCard({ entry, onPress, width }: MediaCardProps) {
           {entry.type === 'video' && (
             <View style={[styles.playOverlay, { backgroundColor: theme.overlay }]}>
               <View style={[styles.playButton, { backgroundColor: theme.surface }]}>
-                <Play size={14} color={theme.tabBarActive} fill={theme.tabBarActive} />
+                <Play size={14} color={theme.primary} fill={theme.primary} />
               </View>
             </View>
           )}

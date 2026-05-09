@@ -11,9 +11,10 @@ import {
   PanResponder,
   Pressable,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Lock, LockKeyhole as Unlock, Tag, Calendar, FastForward, Play, Square, Maximize, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Rewind, Pause, Settings as SettingsIcon } from 'lucide-react-native';
+import { ArrowLeft, Lock, LockKeyhole as Unlock, Tag, Calendar, FastForward, Play, Square, Maximize, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Rewind, Pause, Mic } from 'lucide-react-native';
 import { useMedia } from '@/context/MediaContext';
 import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
@@ -28,13 +29,64 @@ export default function MediaDetailScreen() {
   const router = useRouter();
   const { entries, localFiles, toggleVault } = useMedia();
   const { settings } = useSettings();
-  const theme = THEMES[settings.theme || 'kirby'] || THEMES.kirby;
+  const theme = THEMES[settings?.theme || 'kirby'] || THEMES.kirby;
 
   const allMedia = useMemo(() => [...entries, ...localFiles], [entries, localFiles]);
 
   const entry = useMemo(() => {
       return allMedia.find(e => e.id === id);
   }, [id, allMedia]);
+
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackStatus, setPlaybackStatus] = useState<any>({});
+  const videoRef = useRef<Video>(null);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [status, setStatus] = useState<any>({});
+  const controlsTimeout = useRef<any>(null);
+
+  // Animation for the info panel
+  const panelTranslateY = useRef(new Animated.Value(600)).current;
+  const [isPanelExpanded, setIsPanelExpanded] = useState(false);
+
+  useEffect(() => {
+    if (entry?.type === 'voice' && entry.local_path) {
+        loadSound(entry.local_path);
+    }
+    return () => {
+        if (sound) sound.unloadAsync();
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, [id, entry?.type]);
+
+  async function loadSound(uri: string) {
+      try {
+          if (sound) await sound.unloadAsync();
+          const { sound: newSound } = await Audio.Sound.createAsync(
+              { uri },
+              { shouldPlay: settings.autoPlay },
+              onPlaybackStatusUpdate
+          );
+          setSound(newSound);
+      } catch (e) {
+          console.error("Failed to load sound", e);
+      }
+  }
+
+  const onPlaybackStatusUpdate = (status: any) => {
+      setPlaybackStatus(status);
+      if (status.isLoaded) {
+          setIsPlaying(status.isPlaying);
+      }
+  };
+
+  const toggleVoicePlay = async () => {
+      if (!sound) return;
+      if (isPlaying) await sound.pauseAsync();
+      else await sound.playAsync();
+  };
 
   if (!entry) {
     return (
@@ -71,19 +123,6 @@ export default function MediaDetailScreen() {
       router.replace(`/media/${nextId}`);
     }
   };
-
-  const videoRef = useRef<Video>(null);
-  const [playbackRate, setPlaybackRate] = useState(1.0);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [status, setStatus] = useState<any>({});
-  const controlsTimeout = useRef<any>(null);
-
-  // Animation for the info panel - Hidden by default (starting at 600)
-  const panelTranslateY = useRef(new Animated.Value(600)).current;
-  const [isPanelExpanded, setIsPanelExpanded] = useState(false);
 
   const togglePanel = (expand: boolean) => {
     Animated.spring(panelTranslateY, {
@@ -139,6 +178,10 @@ export default function MediaDetailScreen() {
   };
 
   const togglePlayPause = async () => {
+    if (entry.type === 'voice') {
+        toggleVoicePlay();
+        return;
+    }
     if (!videoRef.current) return;
     const videoStatus = await videoRef.current.getStatusAsync();
     if (videoStatus.isLoaded) {
@@ -189,16 +232,6 @@ export default function MediaDetailScreen() {
       }, 100);
   };
 
-  useEffect(() => {
-    return () => {
-        if (sound) sound.unloadAsync();
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
-    };
-  }, [sound]);
-
-  if (!entry) return null;
-
   const toggleFullscreen = async () => {
       if (isFullScreen) {
           await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
@@ -212,7 +245,8 @@ export default function MediaDetailScreen() {
       const rates = [0.5, 1.0, 1.5, 2.0];
       const nextRate = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
       setPlaybackRate(nextRate);
-      videoRef.current?.setRateAsync(nextRate, true);
+      if (videoRef.current) videoRef.current.setRateAsync(nextRate, true);
+      if (sound) sound.setRateAsync(nextRate, true);
       hideControlsAfterDelay();
   };
 
@@ -222,7 +256,12 @@ export default function MediaDetailScreen() {
       extrapolate: 'clamp'
   });
 
-  const progress = status.isLoaded ? (status.positionMillis / status.durationMillis) * 100 : 0;
+  const progress = entry.type === 'video'
+    ? (status.isLoaded ? (status.positionMillis / status.durationMillis) * 100 : 0)
+    : (playbackStatus.isLoaded ? (playbackStatus.positionMillis / playbackStatus.durationMillis) * 100 : 0);
+
+  const currentTime = entry.type === 'video' ? (status.positionMillis || 0) : (playbackStatus.positionMillis || 0);
+  const duration = entry.type === 'video' ? (status.durationMillis || 0) : (playbackStatus.durationMillis || 0);
 
   return (
     <View style={[styles.container, { backgroundColor: '#000' }]}>
@@ -242,19 +281,17 @@ export default function MediaDetailScreen() {
                     useNativeControls={false}
                     resizeMode={ResizeMode.CONTAIN}
                     onPlaybackStatusUpdate={status => setStatus(() => status)}
-                    isLooping={settings.loopVideos}
-                    shouldPlay={settings.autoPlay}
+                    isLooping={settings?.loopVideos}
+                    shouldPlay={settings?.autoPlay}
                     rate={playbackRate}
                 />
 
-                {/* Interaction Overlay */}
                 <View style={styles.touchOverlay}>
                     <Pressable style={styles.touchThird} onPress={() => handleDoubleTapSeek('left')} />
                     <Pressable style={styles.touchThird} onPress={toggleControls} />
                     <Pressable style={styles.touchThird} onPress={() => handleDoubleTapSeek('right')} />
                 </View>
 
-                {/* YT Style Controls Overlay */}
                 {showControls && (
                     <View style={styles.ytControlsOverlay} pointerEvents="box-none">
                         <View style={styles.centerControls} pointerEvents="box-none">
@@ -275,7 +312,7 @@ export default function MediaDetailScreen() {
                             </View>
                             <View style={styles.bottomRow}>
                                 <Text style={styles.timeText}>
-                                    {formatDuration(Math.floor((status.positionMillis || 0) / 1000))} / {formatDuration(Math.floor((status.durationMillis || 0) / 1000))}
+                                    {formatDuration(Math.floor(currentTime / 1000))} / {formatDuration(Math.floor(duration / 1000))}
                                 </Text>
                                 <View style={styles.bottomRightActions}>
                                     <TouchableOpacity onPress={cyclePlaybackRate} style={styles.speedBadge}>
@@ -290,7 +327,6 @@ export default function MediaDetailScreen() {
                     </View>
                 )}
 
-                {/* Pulse Animations */}
                 {seekType && (
                     <Animated.View style={[
                         styles.seekPulse,
@@ -303,6 +339,23 @@ export default function MediaDetailScreen() {
                         </View>
                     </Animated.View>
                 )}
+            </View>
+        ) : entry.type === 'voice' ? (
+            <View style={[styles.voiceWrapper, { backgroundColor: theme.background }]}>
+                <View style={[styles.voiceCircle, { backgroundColor: theme.primary + '20' }]}>
+                    <Mic size={80} color={theme.primary} />
+                </View>
+                <TouchableOpacity style={[styles.voicePlayBtn, { backgroundColor: theme.primary }]} onPress={toggleVoicePlay}>
+                    {isPlaying ? <Pause size={40} color="white" fill="white" /> : <Play size={40} color="white" fill="white" />}
+                </TouchableOpacity>
+                <View style={styles.voiceProgressContainer}>
+                    <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
+                        <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: theme.primary }]} />
+                    </View>
+                    <Text style={[styles.timeText, { color: theme.textSecondary, textAlign: 'center', marginTop: 10 }]}>
+                        {formatDuration(Math.floor(currentTime / 1000))} / {formatDuration(Math.floor(duration / 1000))}
+                    </Text>
+                </View>
             </View>
         ) : (
           <View style={styles.imageWrapper}>
@@ -324,7 +377,6 @@ export default function MediaDetailScreen() {
           </View>
         )}
 
-        {/* Top Header - Unified for both Image/Video */}
         {showControls && (
             <View style={[styles.headerOverlay, isFullScreen && { top: 20 }]} pointerEvents="box-none">
                 <TouchableOpacity style={styles.circBtn} onPress={() => router.back()}>
@@ -340,7 +392,7 @@ export default function MediaDetailScreen() {
         )}
       </Animated.View>
 
-      {/* Info Panel - Hidden by Default */}
+      {/* Info Panel */}
       {!isFullScreen && (
           <Animated.View
             style={[
@@ -400,6 +452,10 @@ const styles = StyleSheet.create({
   fullScreenMedia: { height: '100%', width: '100%' },
   playerWrapper: { flex: 1, position: 'relative' },
   videoPlayer: { flex: 1 },
+  voiceWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  voiceCircle: { width: 160, height: 160, borderRadius: 80, justifyContent: 'center', alignItems: 'center', marginBottom: 40 },
+  voicePlayBtn: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', elevation: 5 },
+  voiceProgressContainer: { width: '100%', marginTop: 50, paddingHorizontal: 20 },
   imageWrapper: { flex: 1, width: '100%', position: 'relative', justifyContent: 'center' },
   imageViewer: { flex: 1, width: '100%' },
   touchOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 10 },

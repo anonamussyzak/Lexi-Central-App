@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ScrollView, Modal, Alert, KeyboardAvoidingView, Platform, Image, Pressable } from 'react-native';
 import { useSettings } from '@/context/SettingsContext';
 import { THEMES } from '@/constants/themes';
@@ -12,15 +12,14 @@ type FilterType = 'all' | 'voice' | 'note';
 
 export default function NotesScreen() {
   const { settings, updateSetting, saveSettings } = useSettings();
-  const theme = THEMES[settings.theme];
-  const { entries, addEntry, deleteEntry, updateEntry, toggleVault } = useMedia();
+  const theme = THEMES[settings?.theme || 'kirby'] || THEMES.kirby;
+  const { entries, localFiles, addEntry, deleteEntry, updateEntry, toggleVault, isVaultUnlocked, setVaultUnlocked } = useMedia();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState(settings.noteTabs[0] || 'General');
+  const [activeTab, setActiveTab] = useState(settings?.noteTabs?.[0] || 'General');
   const [mediaFilter, setMediaFilter] = useState<FilterType>('all');
 
   // Vault Security State
-  const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const [isPinModalVisible, setIsPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
@@ -35,17 +34,10 @@ export default function NotesScreen() {
 
   // Sync active tab if settings change
   useEffect(() => {
-    if (!settings.noteTabs.includes(activeTab) && activeTab !== 'Vault') {
+    if (settings?.noteTabs && !settings.noteTabs.includes(activeTab) && activeTab !== 'Vault') {
       setActiveTab(settings.noteTabs[0] || 'General');
     }
-  }, [settings.noteTabs]);
-
-  // Lock vault when switching away
-  useEffect(() => {
-    if (activeTab !== 'Vault') {
-      setIsVaultUnlocked(false);
-    }
-  }, [activeTab]);
+  }, [settings?.noteTabs]);
 
   const authenticateVault = async () => {
     try {
@@ -59,28 +51,26 @@ export default function NotesScreen() {
         });
 
         if (result.success) {
-          setIsVaultUnlocked(true);
+          setVaultUnlocked(true);
           setActiveTab('Vault');
           return;
         }
       }
 
-      // Fallback to PIN if biometrics fail or aren't available
-      if (settings.vaultPin) {
+      if (settings?.vaultPin) {
         setIsPinModalVisible(true);
       } else {
-        // If no PIN set, just allow entry but warn
         setActiveTab('Vault');
-        setIsVaultUnlocked(true);
+        setVaultUnlocked(true);
       }
     } catch (e) {
-      if (settings.vaultPin) setIsPinModalVisible(true);
+      if (settings?.vaultPin) setIsPinModalVisible(true);
     }
   };
 
   const handlePinSubmit = () => {
-    if (pinInput === settings.vaultPin) {
-      setIsVaultUnlocked(true);
+    if (pinInput === settings?.vaultPin) {
+      setVaultUnlocked(true);
       setIsPinModalVisible(false);
       setActiveTab('Vault');
       setPinInput('');
@@ -98,26 +88,25 @@ export default function NotesScreen() {
     }
   };
 
-  // Fullscreen Image State
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
-  const [isEditingTabs, setIsEditingTabs] = useState(false);
-  const [editingTabIdx, setEditingTabIdx] = useState<number | null>(null);
-  const [tabRenameValue, setTabRenameValue] = useState('');
+  const displayTabs = [...(settings?.noteTabs || []), 'Vault'];
 
-  const displayTabs = [...settings.noteTabs, 'Vault'];
+  const allEntries = useMemo(() => [...entries, ...localFiles], [entries, localFiles]);
 
-  const filteredNotes = entries.filter(entry => {
-    if (entry.type === 'video' || entry.type === 'image') return false;
-    if (mediaFilter !== 'all' && entry.type !== mediaFilter) return false;
+  const filteredNotes = useMemo(() => {
+    return allEntries.filter(entry => {
+      if (entry.type === 'video' || entry.type === 'image') return false;
+      if (mediaFilter !== 'all' && entry.type !== mediaFilter) return false;
 
-    if (activeTab === 'Vault') {
-      return isVaultUnlocked && entry.is_vaulted;
-    }
+      if (activeTab === 'Vault') {
+        return isVaultUnlocked && entry.is_vaulted;
+      }
 
-    if (entry.is_vaulted) return false;
-    return entry.tags.some(tag => tag.toLowerCase() === activeTab.toLowerCase());
-  });
+      if (entry.is_vaulted) return false;
+      return entry.tags.some(tag => tag.toLowerCase() === activeTab.toLowerCase());
+    });
+  }, [allEntries, mediaFilter, activeTab, isVaultUnlocked]);
 
   const openAddNote = () => {
       setEditingNoteId(null);
@@ -125,7 +114,7 @@ export default function NotesScreen() {
       setNoteContent('');
       setNoteImage(null);
       setIsNoteVaulted(false);
-      setSelectedCategory(activeTab === 'Vault' ? settings.noteTabs[0] || 'General' : activeTab);
+      setSelectedCategory(activeTab === 'Vault' ? settings?.noteTabs?.[0] || 'General' : activeTab);
       setIsNoteModalVisible(true);
   };
 
@@ -136,7 +125,7 @@ export default function NotesScreen() {
       setNoteImage(note.thumbnail_url || null);
       setIsNoteVaulted(note.is_vaulted || false);
 
-      const cat = settings.noteTabs.find(t => note.tags.includes(t.toLowerCase())) || activeTab;
+      const cat = (settings?.noteTabs || []).find(t => note.tags.includes(t.toLowerCase())) || activeTab;
       setSelectedCategory(cat);
 
       setIsNoteModalVisible(true);
@@ -210,16 +199,6 @@ export default function NotesScreen() {
       if (activeTab !== 'Vault') setIsNoteModalVisible(false);
   };
 
-  const saveTabRename = () => {
-      if (editingTabIdx !== null && tabRenameValue.trim()) {
-          const newTabs = [...settings.noteTabs];
-          newTabs[editingTabIdx] = tabRenameValue.trim();
-          updateSetting('noteTabs', newTabs);
-          saveSettings();
-          setEditingTabIdx(null);
-      }
-  };
-
   const mediaTypes: { key: FilterType, label: string }[] = [
       { key: 'all', label: 'All' },
       { key: 'voice', label: 'Memos' },
@@ -236,12 +215,6 @@ export default function NotesScreen() {
                 onPress={() => router.push('/voice')}
             >
                 <Mic size={20} color={theme.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-                style={[styles.iconButton, { backgroundColor: theme.surfaceElevated }]}
-                onPress={() => setIsEditingTabs(!isEditingTabs)}
-            >
-                {isEditingTabs ? <Check size={20} color={theme.success} /> : <Edit2 size={20} color={theme.primary} />}
             </TouchableOpacity>
             <TouchableOpacity
                 style={[styles.addButton, { backgroundColor: theme.primary }]}
@@ -273,37 +246,20 @@ export default function NotesScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
           {displayTabs.map((tab, idx) => {
             const isSystemTab = tab === 'Vault';
-            const settingsIdx = idx;
             const isSelected = activeTab === tab;
             return (
               <TouchableOpacity
                 key={tab + idx}
-                onPress={() => !isEditingTabs && handleTabPress(tab)}
+                onPress={() => handleTabPress(tab)}
                 style={[
                   styles.tab,
-                  { backgroundColor: isSelected && !isEditingTabs ? theme.primary : theme.surfaceElevated },
-                  isEditingTabs && !isSystemTab && { borderColor: theme.primary, borderWidth: 1 }
+                  { backgroundColor: isSelected ? theme.primary : theme.surfaceElevated }
                 ]}
               >
-                {isEditingTabs && !isSystemTab && editingTabIdx === settingsIdx ? (
-                    <TextInput
-                        value={tabRenameValue}
-                        onChangeText={setTabRenameValue}
-                        style={[styles.tabInput, { color: theme.text }]}
-                        autoFocus
-                        onSubmitEditing={saveTabRename}
-                    />
-                ) : (
-                    <View style={styles.tabContent}>
-                        <Text style={[styles.tabText, { color: isSelected && !isEditingTabs ? 'white' : theme.textSecondary }]}>{tab}</Text>
-                        {tab === 'Vault' && !isVaultUnlocked && <Lock size={12} color={isSelected ? 'white' : theme.textMuted} style={{ marginLeft: 5 }} />}
-                        {isEditingTabs && !isSystemTab && (
-                            <TouchableOpacity onPress={() => { setEditingTabIdx(settingsIdx); setTabRenameValue(tab); }}>
-                                <Edit2 size={12} color={theme.textMuted} style={{ marginLeft: 5 }} />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                )}
+                <View style={styles.tabContent}>
+                    <Text style={[styles.tabText, { color: isSelected ? 'white' : theme.textSecondary }]}>{tab}</Text>
+                    {tab === 'Vault' && !isVaultUnlocked && <Lock size={12} color={isSelected ? 'white' : theme.textMuted} style={{ marginLeft: 5 }} />}
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -316,7 +272,7 @@ export default function NotesScreen() {
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[styles.noteCard, { backgroundColor: theme.surface, borderRadius: settings.roundedCorners }]}
+            style={[styles.noteCard, { backgroundColor: theme.surface, borderRadius: settings?.roundedCorners || 20 }]}
             onPress={() => openEditNote(item)}
           >
             <View style={styles.noteHeader}>
@@ -349,10 +305,9 @@ export default function NotesScreen() {
         }
       />
 
-      {/* PIN Fallback Modal */}
       <Modal visible={isPinModalVisible} transparent animationType="fade">
         <View style={styles.pinOverlay}>
-          <View style={[styles.pinContent, { backgroundColor: theme.surface, borderRadius: settings.roundedCorners }]}>
+          <View style={[styles.pinContent, { backgroundColor: theme.surface, borderRadius: settings?.roundedCorners || 20 }]}>
             <Text style={[styles.pinTitle, { color: theme.text }]}>Enter Vault PIN</Text>
             <TextInput
               style={[styles.pinInput, { color: theme.text, borderBottomColor: theme.primary }]}
@@ -394,7 +349,7 @@ export default function NotesScreen() {
                       <View style={styles.categoryPicker}>
                           <Text style={[styles.categoryLabel, { color: theme.textMuted }]}>CATEGORY</Text>
                           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-                              {settings.noteTabs.map(cat => (
+                              {(settings?.noteTabs || []).map(cat => (
                                   <TouchableOpacity
                                     key={cat}
                                     onPress={() => setSelectedCategory(cat)}
